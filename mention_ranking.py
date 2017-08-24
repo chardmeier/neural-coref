@@ -148,17 +148,17 @@ def train(model, train_config, training_set, dev_set):
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
-        #for doc in dev_set:
-        #    phi_a = torch.autograd.Variable(doc.anaphoricity_features().to_dense())
-        #    phi_p = torch.autograd.Variable(doc.pairwise_features().to_dense())
-        #    docsize = phi_a.size()[0]
-        #    predictions = model(phi_a)
-        #    dev_correct += torch.sum((predictions.data * t_labels) > 0)
-        #    dev_total += docsize
-        #    dev_loss += loss_fn(predictions, labels).data[0] / docsize
-        dev_acc = 0
+        for doc in dev_set:
+            phi_a = Variable(doc.anaphoricity_features.long())
+            phi_p = Variable(doc.pairwise_features.long())
+            solution_mask = Variable(doc.solution_mask)
+            docsize = phi_a.size()[0]
+            predictions = model(phi_a, phi_p)
+            dev_correct += torch.sum((predictions * solution_mask) > 0)
+            dev_total += docsize
+            dev_loss += loss_fn(predictions, solution_mask).data[0] / docsize
 
-        #dev_acc = dev_correct / dev_total
+        dev_acc = dev_correct / dev_total
         logging.info('Epoch %d: train_loss_reg %g / train_loss_unreg %g / dev_loss %g / dev_acc %g' %
                      (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
