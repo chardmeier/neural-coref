@@ -108,7 +108,7 @@ def train(model, train_config, training_set, dev_set):
     opt = torch.optim.Adagrad(params=model.parameters())
     loss_fn = MentionRankingLoss(train_config['error_costs'])
     epoch_size = len(training_set)
-    dot_interval = epoch_size // 80
+    dot_interval = max(epoch_size // 80, 1)
     logging.info('%d documents per epoch' % epoch_size)
 
     logging.info('Initialising parameters...')
