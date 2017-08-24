@@ -1,4 +1,5 @@
 import features
+import sparse_init
 
 import h5py
 import logging
@@ -115,7 +116,7 @@ def train(model, train_config, training_set, dev_set):
         # Sparse initialisation similar to Sutskever et al. (ICML 2013)
         # For tanh units, use std 0.25 and set biases to 0.5
         if p.dim() == 2:
-            nn_init.sparse(p, sparsity=0.1, std=0.25)
+            sparse_init.sparse(p, sparsity=0.1, std=0.25)
         else:
             nn_init.constant(p, 0.5)
 
