@@ -164,12 +164,8 @@ def train(model, train_config, training_set, dev_set):
                      (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
-def main():
+def main(train_file, dev_file):
     logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
-
-    data_path = '/home/nobackup/ch/coref'
-    train_file = os.path.join(data_path, 'training.h5')
-    dev_file = os.path.join(data_path, 'dev.h5')
 
     logging.info('Loading training data...')
     with h5py.File(train_file, 'r') as h5:
@@ -196,4 +192,9 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    if len(sys.argv) != 3:
+        print('Usage: mention_ranking.py train.h5 dev.h5', file=sys.stderr)
+        sys.exit(1)
+
+    main(sys.argv[1], sys.argv[2])
+
