@@ -155,7 +155,7 @@ def train(model, train_config, training_set, dev_set):
             solution_mask = Variable(doc.solution_mask)
             docsize = phi_a.size()[0]
             predictions = model(phi_a, phi_p)
-            dev_correct += torch.sum((predictions * solution_mask) > 0)
+            dev_correct += torch.sum((predictions * solution_mask) > 0).data[0]
             dev_total += docsize
             dev_loss += loss_fn(predictions, solution_mask).data[0] / docsize
 
