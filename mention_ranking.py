@@ -4,7 +4,6 @@ import sparse_init
 import h5py
 import logging
 import numpy
-import os
 import sys
 import torch
 
