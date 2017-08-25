@@ -186,6 +186,9 @@ def main(train_file, dev_file):
     }
     model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200)
 
+    if torch.cuda.is_available():
+        model = torch.nn.DataParallel(model)
+
     logging.info('Training model...')
     train(model, train_config, training_set, dev_set)
 
