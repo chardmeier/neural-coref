@@ -133,6 +133,10 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
+            if training_set[idx].nmentions > 350:
+                print('Skipping document with %d mentions.' % training_set[idx].nmentions)
+                continue
+
             solution_mask = Variable(training_set[idx].solution_mask)
 
             opt.zero_grad()
