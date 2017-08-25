@@ -28,9 +28,9 @@ def sparse(tensor, sparsity, std=0.01):
     if tensor.ndimension() != 2:
         raise ValueError("Only tensors with 2 dimensions are supported")
 
-    if isinstance(tensor, torch.FloatTensor):
+    if isinstance(tensor, torch.FloatTensor) or isinstance(tensor, torch.cuda.FloatTensor):
         dtype = numpy.float32
-    elif isinstance(tensor, torch.DoubleTensor):
+    elif isinstance(tensor, torch.DoubleTensor) or isinstance(tensor, torch.cuda.DoubleTensor):
         dtype = numpy.float64
     else:
         raise ValueError("Only floating-point tensors are supported")
