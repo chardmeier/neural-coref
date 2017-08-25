@@ -110,7 +110,6 @@ class MentionRankingLoss(torch.nn.Module):
 
 
 def train(model, train_config, training_set, dev_set, cuda=False):
-    opt = torch.optim.Adagrad(params=model.parameters())
     loss_fn = MentionRankingLoss(train_config['error_costs'])
     epoch_size = len(training_set)
     dot_interval = max(epoch_size // 80, 1)
@@ -124,6 +123,11 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             sparse_init.sparse(p, sparsity=0.1, std=0.25)
         else:
             nn_init.constant(p, 0.5)
+
+    if cuda:
+        model = model.cuda()
+
+    opt = torch.optim.Adagrad(params=model.parameters())
 
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
@@ -167,16 +171,23 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             del reg_loss
 
         print()
-        print('Skipped %d/%d documents.' % (skipped, len(training_set)))
+        logging.info('Skipped %d/%d documents.' % (skipped, len(training_set)))
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            phi_a = Variable(doc.anaphoricity_features.long())
-            phi_p = Variable(doc.pairwise_features.long())
-            solution_mask = Variable(doc.solution_mask)
+            if cuda:
+                phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), volatile=True).\
+                    cuda(async=True)
+                phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True).\
+                    cuda(async=True)
+                predictions = model(phi_a, phi_p).cpu()
+            else:
+                phi_a = Variable(doc.anaphoricity_features.long())
+                phi_p = Variable(doc.pairwise_features.long())
+                predictions = model(phi_a, phi_p).cpu()
+            solution_mask = Variable(doc.solution_mask, volatile=True)
             docsize = phi_a.size()[0]
-            predictions = model(phi_a, phi_p)
             dev_correct += torch.sum((predictions * solution_mask) > 0).data[0]
             dev_total += docsize
             dev_loss += loss_fn(predictions, solution_mask).data[0] / docsize
@@ -218,9 +229,6 @@ def main():
     }
     model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200,
                                 cuda=cuda)
-
-    if cuda:
-        model = torch.nn.DataParallel(model)
 
     logging.info('Training model...')
     train(model, train_config, training_set, dev_set, cuda=cuda)
