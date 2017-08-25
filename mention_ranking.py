@@ -163,7 +163,14 @@ def train(model, train_config, training_set, dev_set):
                      (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
-def main(train_file, dev_file):
+def main():
+    if len(sys.argv) != 3:
+        print('Usage: mention_ranking.py train.h5 dev.h5', file=sys.stderr)
+        sys.exit(1)
+
+    train_file = sys.argv[1]
+    dev_file = sys.argv[2]
+
     logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
 
     logging.info('Loading training data...')
@@ -194,9 +201,5 @@ def main(train_file, dev_file):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3:
-        print('Usage: mention_ranking.py train.h5 dev.h5', file=sys.stderr)
-        sys.exit(1)
-
-    main(sys.argv[1], sys.argv[2])
+    main()
 
