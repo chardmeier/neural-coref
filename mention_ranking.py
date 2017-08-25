@@ -129,12 +129,13 @@ def train(model, train_config, training_set, dev_set, cuda=False):
     for epoch in range(train_config['nepochs']):
         train_loss_reg = 0.0
         train_loss_unreg = 0.0
+        skipped = 0
         for i, idx in enumerate(numpy.random.permutation(epoch_size)):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
             if training_set[idx].nmentions > 350:
-                print('Skipping document with %d mentions.' % training_set[idx].nmentions)
+                skipped += 1
                 continue
 
             solution_mask = Variable(training_set[idx].solution_mask)
@@ -166,6 +167,7 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             del reg_loss
 
         print()
+        print('Skipped %d/%d documents.' % (skipped, len(training_set)))
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
