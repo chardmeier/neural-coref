@@ -156,6 +156,11 @@ def train(model, train_config, training_set, dev_set, cuda=False):
 
             loss.backward()
             opt.step()
+
+            del loss
+            del model_loss
+            del reg_loss
+
         print()
         dev_loss = 0.0
         dev_correct = 0
