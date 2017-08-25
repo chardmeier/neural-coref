@@ -28,8 +28,10 @@ class HModel(torch.nn.Module):
 
 
 class MentionRankingModel(torch.nn.Module):
-    def __init__(self, phi_a_size, phi_p_size, ha_size, hp_size, hidden_size=None):
+    def __init__(self, phi_a_size, phi_p_size, ha_size, hp_size, hidden_size=None, cuda=False):
         super(MentionRankingModel, self).__init__()
+
+        self.with_cuda = cuda
 
         self.ha_size = ha_size
         self.hp_size = hp_size
@@ -55,7 +57,11 @@ class MentionRankingModel(torch.nn.Module):
 
         eps_scores = self.eps_scoring_model(h_a)
 
-        h_combined = torch.autograd.Variable(torch.FloatTensor(ncands, self.ha_size + self.hp_size))
+        if not self.with_cuda:
+            h_combined = torch.autograd.Variable(torch.FloatTensor(ncands, self.ha_size + self.hp_size))
+        else:
+            h_combined = torch.autograd.Variable(torch.cuda.FloatTensor(ncands, self.ha_size + self.hp_size))
+
         i = 0
         for j in range(1, nmentions):
             h_combined[i:(i + j), :self.ha_size] = h_a[j, :].expand(j, self.ha_size)
@@ -68,11 +74,11 @@ class MentionRankingModel(torch.nn.Module):
 
         # Put epsilon scores on the main diagonal
         eps_idx = torch.eye(nmentions).byte()
-        all_scores[eps_idx] = eps_scores
+        all_scores[eps_idx] = eps_scores.cpu()
 
         # Put anaphoric scores in the triangular part below the diagonal
         ana_idx = torch.tril(torch.ones(nmentions, nmentions).byte(), -1)
-        all_scores[ana_idx] = ana_scores
+        all_scores[ana_idx] = ana_scores.cpu()
 
         return all_scores
 
@@ -103,7 +109,7 @@ class MentionRankingLoss(torch.nn.Module):
         return loss
 
 
-def train(model, train_config, training_set, dev_set):
+def train(model, train_config, training_set, dev_set, cuda=False):
     opt = torch.optim.Adagrad(params=model.parameters())
     loss_fn = MentionRankingLoss(train_config['error_costs'])
     epoch_size = len(training_set)
@@ -127,16 +133,22 @@ def train(model, train_config, training_set, dev_set):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
-            phi_a = Variable(training_set[idx].anaphoricity_features.long())
-            phi_p = Variable(training_set[idx].pairwise_features.long())
             solution_mask = Variable(training_set[idx].solution_mask)
 
             opt.zero_grad()
 
-            scores = model(phi_a, phi_p)
+            if cuda:
+                phi_a = Variable(training_set[idx].anaphoricity_features.long().pin_memory()).cuda(async=True)
+                phi_p = Variable(training_set[idx].pairwise_features.long().pin_memory()).cuda(async=True)
+                scores = model(phi_a, phi_p).cpu()
+            else:
+                phi_a = Variable(training_set[idx].anaphoricity_features.long())
+                phi_p = Variable(training_set[idx].pairwise_features.long())
+                scores = model(phi_a, phi_p).cpu()
+
             model_loss = loss_fn(scores, solution_mask)
 
-            reg_loss = sum(p.abs().sum() for p in model.parameters())
+            reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
             loss = model_loss + train_config['l1reg'] * reg_loss
 
             train_loss_unreg += model_loss.data[0] / phi_a.size()[0]
@@ -171,6 +183,8 @@ def main():
     train_file = sys.argv[1]
     dev_file = sys.argv[2]
 
+    cuda = torch.cuda.is_available()
+
     logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
 
     logging.info('Loading training data...')
@@ -191,13 +205,14 @@ def main():
             'wrong_link': 1.0
         }
     }
-    model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200)
+    model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200,
+                                cuda=cuda)
 
-    if torch.cuda.is_available():
+    if cuda:
         model = torch.nn.DataParallel(model)
 
     logging.info('Training model...')
-    train(model, train_config, training_set, dev_set)
+    train(model, train_config, training_set, dev_set, cuda=cuda)
 
 
 if __name__ == '__main__':
