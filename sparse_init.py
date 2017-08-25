@@ -28,11 +28,17 @@ def sparse(tensor, sparsity, std=0.01):
     if tensor.ndimension() != 2:
         raise ValueError("Only tensors with 2 dimensions are supported")
 
-    tensor.normal_(0, std)
+    if isinstance(tensor, torch.FloatTensor):
+        dtype = numpy.float32
+    elif isinstance(tensor, torch.DoubleTensor):
+        dtype = numpy.float64
+    else:
+        raise ValueError("Only floating-point tensors are supported")
+
     rows, cols = tensor.size(0), tensor.size(1)
     num_zeros = int(math.ceil(rows * sparsity))
 
-    n_tensor = tensor.numpy()
+    n_tensor = numpy.random.normal(0, std, size=(rows, cols)).astype(dtype)
     zero_col_indices = numpy.empty((cols, num_zeros), dtype=numpy.int_, order='C')
     zero_row_indices = numpy.empty((cols, num_zeros), dtype=numpy.int_, order='C')
     for col_idx in range(cols):
@@ -40,5 +46,5 @@ def sparse(tensor, sparsity, std=0.01):
         zero_row_indices[col_idx, :] = numpy.random.choice(rows, size=num_zeros, replace=False)
     n_tensor[zero_row_indices.ravel(order='C'), zero_col_indices.ravel(order='C')] = 0
 
-    tensor = torch.from_numpy(n_tensor)
+    tensor.copy_(torch.from_numpy(n_tensor))
     return tensor
