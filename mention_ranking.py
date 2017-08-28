@@ -1,8 +1,11 @@
 import features
 import sparse_init
 
+import argparse
+import collections
 import copy
 import h5py
+import json
 import logging
 import numpy
 import sys
@@ -112,6 +115,7 @@ class MentionRankingLoss(torch.nn.Module):
 
 def train(model, train_config, training_set, dev_set, cuda=False):
     loss_fn = MentionRankingLoss(train_config['error_costs'])
+
     epoch_size = len(training_set)
     dot_interval = max(epoch_size // 80, 1)
     logging.info('%d documents per epoch' % epoch_size)
@@ -139,7 +143,7 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
-            if training_set[idx].nmentions > 350:
+            if training_set[idx].nmentions > train_config['maxsize_gpu']:
                 skipped += 1
                 continue
 
@@ -183,7 +187,7 @@ def train(model, train_config, training_set, dev_set, cuda=False):
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            if cuda and doc.nmentions <= 350:
+            if cuda and doc.nmentions <= train_config['maxsize_gpu']:
                 phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), volatile=True).\
                     cuda(async=True)
                 phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True).\
@@ -205,26 +209,38 @@ def train(model, train_config, training_set, dev_set, cuda=False):
                      (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
-def main():
-    if len(sys.argv) != 3:
-        print('Usage: mention_ranking.py train.h5 dev.h5', file=sys.stderr)
-        sys.exit(1)
+# from https://stackoverflow.com/a/3233356
+def recursive_dict_update(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.Mapping):
+            r = recursive_dict_update(d.get(k, {}), v)
+            d[k] = r
+        else:
+            d[k] = u[k]
+    return d
 
-    train_file = sys.argv[1]
-    dev_file = sys.argv[2]
+
+def main():
+    parser = argparse.ArgumentParser(description='Train mention-ranking model.')
+    parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).', required=True)
+    parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).', required=True)
+    parser.add_argument('--train-config', dest='train_config_file', help='Training configuration file.')
+    parser.add_argument('--model', dest='model_file', help='File name for the trained model.', required=True)
+    args = parser.parse_args()
 
     cuda = torch.cuda.is_available()
 
     logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
 
     logging.info('Loading training data...')
-    with h5py.File(train_file, 'r') as h5:
+    with h5py.File(args.train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
 
     logging.info('Loading development data...')
-    with h5py.File(dev_file, 'r') as h5:
+    with h5py.File(args.dev_file, 'r') as h5:
         dev_set = features.load_from_hdf5(h5)
 
+    # Default settings
     train_config = {
         'nepochs': 100,
         'delta_a': [1, 1],
@@ -233,13 +249,23 @@ def main():
             'false_link': 0.5,
             'false_new': 1.2,
             'wrong_link': 1.0
-        }
+        },
+        'maxsize_gpu': 350
     }
+
+    if args.train_config is not None:
+        with open(args.train_config, 'r') as f:
+            recursive_dict_update(train_config, json.load(f))
+
     model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200,
                                 cuda=cuda)
 
     logging.info('Training model...')
     train(model, train_config, training_set, dev_set, cuda=cuda)
+
+    logging.info('Saving model...')
+    with open(args.model_file, 'w') as f:
+        torch.save(model, f)
 
 
 if __name__ == '__main__':
