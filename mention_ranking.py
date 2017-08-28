@@ -113,7 +113,7 @@ class MentionRankingLoss(torch.nn.Module):
         return loss
 
 
-def train(model, train_config, training_set, dev_set, cuda=False):
+def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
     loss_fn = MentionRankingLoss(train_config['error_costs'])
 
     epoch_size = len(training_set)
@@ -183,6 +183,12 @@ def train(model, train_config, training_set, dev_set, cuda=False):
         else:
             cpu_model = model
 
+        if checkpoint:
+            logging.info('Saving checkpoint...')
+            with open('%s-%03d' % (checkpoint, epoch), 'w') as f:
+                torch.save(cpu_model, f)
+
+        logging.info('Computing devset performance...')
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
@@ -225,7 +231,8 @@ def main():
     parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).', required=True)
     parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).', required=True)
     parser.add_argument('--train-config', dest='train_config_file', help='Training configuration file.')
-    parser.add_argument('--model', dest='model_file', help='File name for the trained model.', required=True)
+    parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
+    parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
     args = parser.parse_args()
 
     cuda = torch.cuda.is_available()
@@ -261,11 +268,12 @@ def main():
                                 cuda=cuda)
 
     logging.info('Training model...')
-    train(model, train_config, training_set, dev_set, cuda=cuda)
+    train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
 
-    logging.info('Saving model...')
-    with open(args.model_file, 'w') as f:
-        torch.save(model, f)
+    if args.model_file is not None:
+        logging.info('Saving model...')
+        with open(args.model_file, 'w') as f:
+            torch.save(model, f)
 
 
 if __name__ == '__main__':
