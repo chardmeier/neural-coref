@@ -185,7 +185,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         if checkpoint:
             logging.info('Saving checkpoint...')
-            with open('%s-%03d' % (checkpoint, epoch), 'w') as f:
+            with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
                 torch.save(cpu_model, f)
 
         logging.info('Computing devset performance...')
@@ -272,7 +272,7 @@ def main():
 
     if args.model_file is not None:
         logging.info('Saving model...')
-        with open(args.model_file, 'w') as f:
+        with open(args.model_file, 'wb') as f:
             torch.save(model, f)
 
 
