@@ -230,7 +230,7 @@ def main():
     parser = argparse.ArgumentParser(description='Train mention-ranking model.')
     parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).', required=True)
     parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).', required=True)
-    parser.add_argument('--train-config', dest='train_config_file', help='Training configuration file.')
+    parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
     parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
     parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
     args = parser.parse_args()
@@ -260,7 +260,7 @@ def main():
         'maxsize_gpu': 350
     }
 
-    if args.train_config is not None:
+    if args.train_config:
         with open(args.train_config, 'r') as f:
             recursive_dict_update(train_config, json.load(f))
 
