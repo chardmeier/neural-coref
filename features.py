@@ -1,4 +1,6 @@
+import contextlib
 import h5py
+import itertools
 import numpy
 import os
 import torch
@@ -194,7 +196,15 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
     docs = []
     ana_fmap = load_feature_map(ana_fmap_file)
     pw_fmap = load_feature_map(pw_fmap_file)
-    with open(ana_file, 'r') as ana_f, open(pw_file, 'r') as pw_f, open(opc_file, 'r') as opc_f:
+    with contextlib.ExitStack() as stack:
+        ana_f = stack.enter_context(open(ana_file, 'r'))
+        pw_f = stack.enter_context(open(pw_file, 'r'))
+
+        if opc_file:
+            opc_f = stack.enter_context(open(opc_file, 'r'))
+        else:
+            opc_f = itertools.repeat(None)
+
         lineno = 0
         for ana_line, pw_line, opc_line in zip(ana_f, pw_f, opc_f):
             lineno += 1
@@ -214,7 +224,8 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
             maxfeat = max(len(ft) for ft in ftlist)
             ana_features = torch.IntTensor(nmentions, maxfeat).zero_()
             for i, ft in enumerate(ftlist):
-                ana_features[i, :ft.size()[1]] = torch.IntTensor(ft)
+                if ft:
+                    ana_features[i, :len(ft)] = torch.IntTensor(ft)
 
             # pairwise features
             mention_pairs = pw_line.rstrip('\n').split('|')
@@ -238,10 +249,14 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
                     ant_m += 1
 
             # oracle predicted clusters
-            opc_m2c = torch.IntTensor(nmentions)
-            for i, sc in enumerate(opc_line.rstrip('\n').split('|')):
-                for m in sc.split(' '):
-                    opc_m2c[int(m)] = i
+            if opc_line:
+                opc_m2c = torch.IntTensor(nmentions)
+                for i, sc in enumerate(opc_line.rstrip('\n').split('|')):
+                    if sc:
+                        for m in sc.split(' '):
+                            opc_m2c[int(m)] = i
+            else:
+                opc_m2c = torch.zeros(nmentions)
 
             docs.append(CorefDocument(len(ana_fmap), ana_features, len(pw_fmap), pw_features, opc_m2c))
 
