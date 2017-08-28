@@ -1,6 +1,7 @@
 import features
 import sparse_init
 
+import copy
 import h5py
 import logging
 import numpy
@@ -57,10 +58,10 @@ class MentionRankingModel(torch.nn.Module):
 
         eps_scores = self.eps_scoring_model(h_a)
 
-        if not self.with_cuda:
-            h_combined = torch.autograd.Variable(torch.FloatTensor(ncands, self.ha_size + self.hp_size))
-        else:
+        if phi_a.is_cuda and all_phi_p.is_cuda:
             h_combined = torch.autograd.Variable(torch.cuda.FloatTensor(ncands, self.ha_size + self.hp_size))
+        else:
+            h_combined = torch.autograd.Variable(torch.FloatTensor(ncands, self.ha_size + self.hp_size))
 
         i = 0
         for j in range(1, nmentions):
@@ -172,11 +173,17 @@ def train(model, train_config, training_set, dev_set, cuda=False):
 
         print()
         logging.info('Skipped %d/%d documents.' % (skipped, len(training_set)))
+
+        if cuda:
+            cpu_model = copy.deepcopy(model).cpu()
+        else:
+            cpu_model = model
+
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            if cuda:
+            if cuda and doc.nmentions <= 350:
                 phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), volatile=True).\
                     cuda(async=True)
                 phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True).\
@@ -185,7 +192,8 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             else:
                 phi_a = Variable(doc.anaphoricity_features.long())
                 phi_p = Variable(doc.pairwise_features.long())
-                predictions = model(phi_a, phi_p).cpu()
+                predictions = cpu_model(phi_a, phi_p)
+
             solution_mask = Variable(doc.solution_mask, volatile=True)
             docsize = phi_a.size()[0]
             dev_correct += torch.sum((predictions * solution_mask) > 0).data[0]
