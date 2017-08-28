@@ -97,20 +97,20 @@ class CorefCorpus:
         doc_nmentions = numpy.array([d.nmentions for d in self.docs], dtype=numpy.int32)
         h5_group.create_dataset('doc_nmentions', dtype=numpy.int32, data=doc_nmentions)
 
-        ext_doc_nmentions = numpy.concatenate([numpy.zeros((1, 1)), doc_nmentions])
+        ext_doc_nmentions = numpy.concatenate([numpy.zeros((1,), dtype=numpy.int32), doc_nmentions])
         ana_idx = ext_doc_nmentions.cumsum()
         pw_idx = numpy.cumsum(ext_doc_nmentions * (ext_doc_nmentions - 1) // 2)
 
         max_ana_features = max(d.anaphoricity_features.size()[1] for d in self.docs)
         fmatrix = numpy.zeros((ana_idx[-1], max_ana_features), dtype=numpy.int32)
         for i, d in enumerate(self.docs):
-            fmatrix[ana_idx[i]:ana_idx[i + 1], :d.max_ana_features] = d.anaphoricity_features.numpy()
+            fmatrix[ana_idx[i]:ana_idx[i + 1], :d.anaphoricity_features.size()[1]] = d.anaphoricity_features.numpy()
         h5_group.create_dataset('anaphoricity_features', dtype=numpy.int32, data=fmatrix)
 
-        max_pw_features = max(d.max_pw_features for d in self.docs)
+        max_pw_features = max(d.pairwise_features.size()[1] for d in self.docs)
         fmatrix = numpy.zeros((pw_idx[-1], max_pw_features), dtype=numpy.int32)
         for i, d in enumerate(self.docs):
-            fmatrix[pw_idx[i]:pw_idx[i + 1], :d.max_pw_features] = d.pairwise_features.numpy()
+            fmatrix[pw_idx[i]:pw_idx[i + 1], :d.pairwise_features.size()[1]] = d.pairwise_features.numpy()
         h5_group.create_dataset('pairwise_features', dtype=numpy.int32, data=fmatrix)
 
         opc_m2c = numpy.concatenate([d.mention_to_opc.numpy() for d in self.docs])
