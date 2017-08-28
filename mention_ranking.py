@@ -215,6 +215,37 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                      (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
+def predict(model, test_set, cuda=False, maxsize_gpu=None):
+    if maxsize_gpu is None:
+        maxsize_gpu = 10000
+
+    if cuda:
+        cpu_model = copy.deepcopy(model).cpu()
+        model.cuda()
+    else:
+        cpu_model = model
+
+    predictions = []
+    for doc in test_set:
+        if cuda and doc.nmentions <= maxsize_gpu:
+            phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), volatile=True). \
+                cuda(async=True)
+            phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True). \
+                cuda(async=True)
+            doc_pred = model(phi_a, phi_p).cpu()
+        else:
+            phi_a = Variable(doc.anaphoricity_features.long())
+            phi_p = Variable(doc.pairwise_features.long())
+            doc_pred = cpu_model(phi_a, phi_p)
+
+        n_doc_pred = doc_pred.numpy()
+        n_doc_pred[numpy.triu_indices_from(n_doc_pred, 1)] = float('-inf')
+        argmax = n_doc_pred.argmax(axis=1)
+        predictions.append([x for x in argmax])
+
+    return predictions
+
+
 # from https://stackoverflow.com/a/3233356
 def recursive_dict_update(d, u):
     for k, v in u.items():
