@@ -175,7 +175,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             del model_loss
             del reg_loss
 
-        print()
+        print(flush=True)
         logging.info('Skipped %d/%d documents.' % (skipped, len(training_set)))
 
         if cuda:
