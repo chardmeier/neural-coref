@@ -256,7 +256,7 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
                         for m in sc.split(' '):
                             opc_m2c[int(m)] = i
             else:
-                opc_m2c = torch.zeros(nmentions)
+                opc_m2c = torch.zeros(nmentions).int()
 
             docs.append(CorefDocument(len(ana_fmap), ana_features, len(pw_fmap), pw_features, opc_m2c))
 
