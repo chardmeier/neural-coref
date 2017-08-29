@@ -240,7 +240,7 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
             phi_p = Variable(doc.pairwise_features.long(), volatile=True)
             doc_pred = cpu_model(phi_a, phi_p)
 
-        n_doc_pred = doc_pred.numpy()
+        n_doc_pred = doc_pred.data.numpy()
         n_doc_pred[numpy.triu_indices_from(n_doc_pred, 1)] = float('-inf')
         argmax = n_doc_pred.argmax(axis=1)
         predictions.append([x for x in argmax])
