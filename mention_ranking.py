@@ -259,19 +259,7 @@ def recursive_dict_update(d, u):
     return d
 
 
-def main():
-    parser = argparse.ArgumentParser(description='Train mention-ranking model.')
-    parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).', required=True)
-    parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).', required=True)
-    parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
-    parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
-    parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
-    args = parser.parse_args()
-
-    cuda = torch.cuda.is_available()
-
-    logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
-
+def training_mode(args, cuda):
     logging.info('Loading training data...')
     with h5py.File(args.train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
@@ -303,10 +291,57 @@ def main():
     logging.info('Training model...')
     train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
 
-    if args.model_file is not None:
+    if args.model_file:
         logging.info('Saving model...')
         with open(args.model_file, 'wb') as f:
             torch.save(model, f)
+
+
+def test_mode(args, model, cuda):
+    if model is None:
+        if args.model_file is None:
+            logging.error('No model given.')
+            sys.exit(1)
+
+        with open(args.model_file, 'rb') as f:
+            model = torch.load(f)
+    elif args.model_file:
+        logging.warn('Using new model for prediction, ignoring --model argument.')
+
+    logging.info('Loading test data...')
+    with h5py.File(args.test_file, 'r') as h5:
+        test_set = features.load_from_hdf5(h5)
+    
+    predictions = predict(model, test_set, cuda, 350)
+
+    for doc in predictions:
+        print(' '.join(str(m) for m in doc))
+ 
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--predict' dest='test_file', help='Test corpus to predict on (HDF5).')
+    parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).')
+    parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).')
+    parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
+    parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
+    parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
+    args = parser.parse_args()
+
+    if args.test_file is None and args.train_file is None:
+        print('Either --predict or --train is required.', file=sys.stderr)
+        sys.exit(1)
+
+    cuda = torch.cuda.is_available()
+
+    logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
+
+    model = None
+    if args.train_file:
+        model = training_mode(args, cuda)
+
+    if args.test_file:
+        test_mode(args, model, cuda)
 
 
 if __name__ == '__main__':
