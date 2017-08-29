@@ -312,6 +312,7 @@ def test_mode(args, model, cuda):
     with h5py.File(args.test_file, 'r') as h5:
         test_set = features.load_from_hdf5(h5)
     
+    logging.info('Predicting...')
     predictions = predict(model, test_set, cuda, 350)
 
     for doc in predictions:
