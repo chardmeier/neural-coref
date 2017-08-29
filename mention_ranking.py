@@ -202,8 +202,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                     cuda(async=True)
                 predictions = model(phi_a, phi_p).cpu()
             else:
-                phi_a = Variable(doc.anaphoricity_features.long())
-                phi_p = Variable(doc.pairwise_features.long())
+                phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
+                phi_p = Variable(doc.pairwise_features.long(), volatile=True)
                 predictions = cpu_model(phi_a, phi_p)
 
             solution_mask = Variable(doc.solution_mask, volatile=True)
@@ -236,8 +236,8 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
                 cuda(async=True)
             doc_pred = model(phi_a, phi_p).cpu()
         else:
-            phi_a = Variable(doc.anaphoricity_features.long())
-            phi_p = Variable(doc.pairwise_features.long())
+            phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
+            phi_p = Variable(doc.pairwise_features.long(), volatile=True)
             doc_pred = cpu_model(phi_a, phi_p)
 
         n_doc_pred = doc_pred.numpy()
