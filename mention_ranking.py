@@ -296,6 +296,8 @@ def training_mode(args, cuda):
         with open(args.model_file, 'wb') as f:
             torch.save(model, f)
 
+    return model
+
 
 def test_mode(args, model, cuda):
     if model is None:
