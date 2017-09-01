@@ -306,7 +306,7 @@ def test_mode(args, model, cuda):
         with open(args.model_file, 'rb') as f:
             model = torch.load(f)
     elif args.model_file:
-        logging.warn('Using new model for prediction, ignoring --model argument.')
+        logging.warning('Using new model for prediction, ignoring --model argument.')
 
     logging.info('Loading test data...')
     with h5py.File(args.test_file, 'r') as h5:
