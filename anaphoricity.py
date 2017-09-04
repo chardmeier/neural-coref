@@ -82,7 +82,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             labels = Variable(training_set[idx].anaphoricity_labels())
             model_loss = loss_fn(predictions, labels)
 
-            reg_loss = sum(p.abs().sum() for p in model.parameters())
+            reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
             loss = model_loss + train_config['l1reg'] * reg_loss
 
             train_loss_unreg += model_loss.data[0] / phi_a.size()[0]
@@ -111,7 +111,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                 phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
             labels = Variable(doc.anaphoricity_labels(), volatile=True)
             docsize = phi_a.size()[0]
-            predictions = model(phi_a)
+            predictions = model(phi_a).cpu()
             dev_correct += torch.sum((predictions * labels) > 0).data[0]
             dev_total += docsize
             dev_loss += loss_fn(predictions, labels).data[0] / docsize
