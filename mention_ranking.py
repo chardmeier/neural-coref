@@ -118,18 +118,18 @@ def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
     pretrained_params = {}
 
     if ha_pretrain:
-        for name, p in ha_pretrain:
+        for name, p in ha_pretrain.items():
             if name.startswith('ha_model.'):
                 pretrained_params[name] = p
 
     if hp_pretrain:
-        for name, p in hp_pretrain:
+        for name, p in hp_pretrain.items():
             if name.startswith('hp_model.'):
                 pretrained_params[name] = p
 
     for name, p in model.named_parameters():
         if name in pretrained_params:
-            p.copy_(pretrained_params[name])
+            p.data = pretrained_params[name]
         else:
             # Sparse initialisation similar to Sutskever et al. (ICML 2013)
             # For tanh units, use std 0.25 and set biases to 0.5
@@ -332,10 +332,7 @@ def training_mode(args, model, cuda):
         with open(train_config['ha_pretrain'], 'rb') as f:
             ha_pretrain = torch.load(f)
     else:
-        logging.info('Loading pretrained weights for h_a layer...')
-        with open('/Users/christianhardmeier/nn-coref.data/anaphoricity-000', 'rb') as f:
-            ha_pretrain = torch.load(f)
-        # ha_pretrain = None
+        ha_pretrain = None
 
     if train_config['hp_pretrain']:
         logging.info('Loading pretrained weights for h_p layer...')
@@ -397,7 +394,7 @@ def main():
     model = create_model(args, cuda)
 
     if args.train_file:
-        training_mode(args, cuda)
+        training_mode(args, model, cuda)
 
     if args.test_file:
         test_mode(args, model, cuda)
