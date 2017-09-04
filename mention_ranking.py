@@ -164,7 +164,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         },
         {
             'params': deep_layers,
-            'lr': train_config['learning_rate'][0]
+            'lr': train_config['learning_rate'][1]
         }
     ]
 
