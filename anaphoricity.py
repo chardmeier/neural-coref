@@ -143,7 +143,7 @@ def main():
 
     # Default settings
     train_config = {
-        'nepochs': 100,
+        'nepochs': 20,
         'delta_a': [1.35, 1.0],
         'learning_rate': 0.01,
         'l1reg': 0.001
