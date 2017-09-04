@@ -3,6 +3,7 @@
 import features
 import sparse_init
 
+import h5py
 import numpy
 import os
 import torch
@@ -108,26 +109,23 @@ def train(model, train_config, training_set, dev_set, cuda=False):
 
 def main():
     data_path = '/home/nobackup/ch/coref'
-    fmap_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-anaphMapping.txt')
-    train_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-anaphTrainFeats.txt')
-    dev_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-anaphDevFeats.txt')
-    train_opc_file = os.path.join(data_path, 'TrainOPCs.txt')
-    dev_opc_file = os.path.join(data_path, 'DevOPCs.txt')
+    train_file = os.path.join(data_path, 'training.h5')
+    dev_file = os.path.join(data_path, 'dev.h5')
 
-    train_features = features.convert_anaph(train_file, fmap_file)
-    dev_features = features.convert_anaph(dev_file, fmap_file)
+    with h5py.File(train_file, 'r') as h5:
+        training_set = features.load_from_hdf5(h5)
 
-    train_opc = features.OraclePredictedClustering(train_opc_file)
-    dev_opc = features.OraclePredictedClustering(dev_opc_file)
+    with h5py.File(dev_file, 'r') as h5:
+        dev_set = features.load_from_hdf5(h5)
 
     train_config = {
         'nepochs': 100,
         'delta_a': [1, 1],
         'l1reg': 0.001
     }
-    model = AnaphoricityModel(train_features.nfeatures(), 200)
+    model = AnaphoricityModel(len(training_set.anaphoricity_fmap), 200)
 
-    train(model, train_config, train_features, train_opc.anaphoricity_labels(), dev_features, dev_opc.anaphoricity_labels())
+    train(model, train_config, training_set, dev_set)
 
 
 if __name__ == '__main__':
