@@ -37,8 +37,8 @@ class AnaphoricityLoss(nn.Module):
         self.delta_a = torch.autograd.Variable(delta_a)
 
     def forward(self, predictions, labels):
-        class_weights = torch.index_select(self.delta_a, 0, (labels > 0).long())
-        model_loss = torch.sum(class_weights * torch.clamp(1 - labels * predictions, min=0))
+        class_weights = torch.index_select(self.delta_a, 0, (labels > 0).long().squeeze())
+        model_loss = torch.sum(class_weights * torch.clamp(1 - labels * predictions, min=0).squeeze())
 
         return model_loss
 

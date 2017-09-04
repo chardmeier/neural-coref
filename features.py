@@ -141,7 +141,7 @@ class CorefDocument:
             for m in c:
                 self.solution_mask[m, :] = cluster_mask
         self.solution_mask.tril_(-1)
-        eps = torch.eq(self.solution_mask.sum(dim=0), 0).float()
+        eps = torch.eq(self.solution_mask.sum(dim=0, keepdim=False), 0).float()
         self.solution_mask[torch.eye(self.nmentions).byte()] = eps
 
     def is_anaphoric(self, mention):
@@ -149,7 +149,8 @@ class CorefDocument:
         return mention > self.opc_clusters[cluster_id][0]
 
     def anaphoricity_labels(self):
-        return torch.FloatTensor([1 if self.is_anaphoric(m) else -1 for m in range(self.nmentions)])
+        # returns N x 1 matrix
+        return torch.FloatTensor([[1] if self.is_anaphoric(m) else [-1] for m in range(self.nmentions)])
 
 
 def _convert_and_truncate(inp):
