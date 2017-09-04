@@ -1,10 +1,9 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import features
-import sparse_init
+import util
 
 import argparse
-import collections
 import copy
 import h5py
 import json
@@ -127,7 +126,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         # Sparse initialisation similar to Sutskever et al. (ICML 2013)
         # For tanh units, use std 0.25 and set biases to 0.5
         if p.dim() == 2:
-            sparse_init.sparse(p, sparsity=0.1, std=0.25)
+            util.sparse(p, sparsity=0.1, std=0.25)
         else:
             nn_init.constant(p, 0.5)
 
@@ -248,17 +247,6 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
     return predictions
 
 
-# from https://stackoverflow.com/a/3233356
-def recursive_dict_update(d, u):
-    for k, v in u.items():
-        if isinstance(v, collections.Mapping):
-            r = recursive_dict_update(d.get(k, {}), v)
-            d[k] = r
-        else:
-            d[k] = u[k]
-    return d
-
-
 def training_mode(args, cuda):
     logging.info('Loading training data...')
     with h5py.File(args.train_file, 'r') as h5:
@@ -283,7 +271,7 @@ def training_mode(args, cuda):
 
     if args.train_config:
         with open(args.train_config, 'r') as f:
-            recursive_dict_update(train_config, json.load(f))
+            util.recursive_dict_update(train_config, json.load(f))
 
     model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200,
                                 cuda=cuda)

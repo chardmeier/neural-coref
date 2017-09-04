@@ -1,10 +1,22 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
+import collections
 import math
 import numpy
 import torch
 
 from torch.autograd import Variable
+
+
+# from https://stackoverflow.com/a/3233356
+def recursive_dict_update(d, u):
+    for k, v in u.items():
+        if isinstance(v, collections.Mapping):
+            r = recursive_dict_update(d.get(k, {}), v)
+            d[k] = r
+        else:
+            d[k] = u[k]
+    return d
 
 
 def sparse(tensor, sparsity, std=0.01):

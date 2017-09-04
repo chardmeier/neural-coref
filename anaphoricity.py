@@ -1,12 +1,13 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import features
-import sparse_init
+import util
 
+import argparse
 import copy
 import h5py
+import json
 import numpy
-import os
 import torch
 import torch.nn as nn
 
@@ -51,7 +52,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         # Sparse initialisation similar to Sutskever et al. (ICML 2013)
         # For tanh units, use std 0.25 and set biases to 0.5
         if p.dim() == 2:
-            sparse_init.sparse(p, sparsity=0.1, std=0.25)
+            util.sparse(p, sparsity=0.1, std=0.25)
         else:
             nn_init.constant(p, 0.5)
 
@@ -119,25 +120,37 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
 
 def main():
-    data_path = '/home/nobackup/ch/coref'
-    train_file = os.path.join(data_path, 'training.h5')
-    dev_file = os.path.join(data_path, 'dev.h5')
-    model_file = os.path.join(data_path, 'anaphoricity.model')
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).', required=True)
+    parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).', required=True)
+    parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
+    parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
+    parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
+    args = parser.parse_args()
 
-    with h5py.File(train_file, 'r') as h5:
+    with h5py.File(args.train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
 
-    with h5py.File(dev_file, 'r') as h5:
+    with h5py.File(args.dev_file, 'r') as h5:
         dev_set = features.load_from_hdf5(h5)
 
+    # Default settings
     train_config = {
         'nepochs': 100,
         'delta_a': [1, 1],
         'l1reg': 0.001
     }
+    if args.train_config:
+        with open(args.train_config, 'r') as f:
+            util.recursive_dict_update(train_config, json.load(f))
+
     model = AnaphoricityModel(len(training_set.anaphoricity_fmap), 200)
 
-    train(model, train_config, training_set, dev_set, checkpoint=model_file)
+    train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint)
+
+    if args.model_file:
+        with open(args.model_file, 'wb') as f:
+            torch.save(model, f)
 
 
 if __name__ == '__main__':
