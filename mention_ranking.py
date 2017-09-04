@@ -331,6 +331,7 @@ def main():
     parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).')
     parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).')
     parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
+    parser.add_argument('--net-config', dest='net_config', help='Network configuration file.')
     parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
     parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
     args = parser.parse_args()
