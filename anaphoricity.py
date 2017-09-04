@@ -128,6 +128,8 @@ def main():
     parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
     args = parser.parse_args()
 
+    cuda = torch.cuda.is_available()
+
     with h5py.File(args.train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
 
@@ -146,7 +148,7 @@ def main():
 
     model = AnaphoricityModel(len(training_set.anaphoricity_fmap), 200)
 
-    train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint)
+    train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
 
     if args.model_file:
         with open(args.model_file, 'wb') as f:
