@@ -187,6 +187,12 @@ def load_from_hdf5(h5_group):
     return CorefCorpus(numpy.copy(anaphoricity_fmap), numpy.copy(pairwise_fmap), docs)
 
 
+def vocabulary_sizes_from_hdf5(h5_group):
+    anaphoricity_fmap = h5_group['anaphoricity_fmap']
+    pairwise_fmap = h5_group['pairwise_fmap']
+    return len(anaphoricity_fmap), len(pairwise_fmap)
+
+
 def load_feature_map(fmap_file):
     with open(fmap_file, 'r') as f:
         feature_list = [line.rstrip('\n').split(' : ')[1] for line in f]

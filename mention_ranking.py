@@ -114,21 +114,37 @@ class MentionRankingLoss(torch.nn.Module):
         return loss
 
 
+def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
+    pretrained_params = {}
+
+    if ha_pretrain:
+        for name, p in ha_pretrain:
+            if name.startswith('ha_model.'):
+                pretrained_params[name] = p
+
+    if hp_pretrain:
+        for name, p in hp_pretrain:
+            if name.startswith('hp_model.'):
+                pretrained_params[name] = p
+
+    for name, p in model.named_parameters():
+        if name in pretrained_params:
+            p.copy_(pretrained_params[name])
+        else:
+            # Sparse initialisation similar to Sutskever et al. (ICML 2013)
+            # For tanh units, use std 0.25 and set biases to 0.5
+            if name.endswith('bias'):
+                nn_init.constant(p, 0.5)
+            else:
+                util.sparse(p, sparsity=0.1, std=0.25)
+
+
 def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
     loss_fn = MentionRankingLoss(train_config['error_costs'])
 
     epoch_size = len(training_set)
     dot_interval = max(epoch_size // 80, 1)
     logging.info('%d documents per epoch' % epoch_size)
-
-    logging.info('Initialising parameters...')
-    for name, p in model.named_parameters():
-        # Sparse initialisation similar to Sutskever et al. (ICML 2013)
-        # For tanh units, use std 0.25 and set biases to 0.5
-        if name.endswith('bias'):
-            nn_init.constant(p, 0.5)
-        else:
-            util.sparse(p, sparsity=0.1, std=0.25)
 
     if cuda:
         model = model.cuda()
@@ -187,7 +203,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         if checkpoint:
             logging.info('Saving checkpoint...')
             with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
-                torch.save(cpu_model, f)
+                torch.save(cpu_model.state_dict(), f)
 
         logging.info('Computing devset performance...')
         dev_loss = 0.0
@@ -247,7 +263,41 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
     return predictions
 
 
-def training_mode(args, cuda):
+def create_model(args, cuda):
+    net_config = {
+        'ha_size': 128,
+        'hp_size': 700,
+        'g2_size': None
+    }
+
+    if args.net_config:
+        with open(args.net_config, 'r') as f:
+            util.recursive_dict_update(net_config, json.load(f))
+
+    print(json.dumps(net_config), file=sys.stderr)
+
+    if args.train_file:
+        h5_file = args.train_file
+    elif args.test_file:
+        h5_file = args.test_file
+    elif args.dev_file:
+        h5_file = args.dev_file
+    else:
+        logging.error('Cannot determine vocabulary size without corpus.')
+        sys.exit(1)
+
+    with h5py.File(h5_file, 'r') as h5:
+        anaphoricity_fsize, pairwise_fsize = features.vocabulary_sizes_from_hdf5(h5)
+
+    model = MentionRankingModel(anaphoricity_fsize, pairwise_fsize,
+                                net_config['ha_size'], net_config['hp_size'],
+                                hidden_size=net_config['g2_size'],
+                                cuda=cuda)
+
+    return model
+
+
+def training_mode(args, model, cuda):
     logging.info('Loading training data...')
     with h5py.File(args.train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
@@ -266,7 +316,9 @@ def training_mode(args, cuda):
             'false_new': 1.2,
             'wrong_link': 1.0
         },
-        'maxsize_gpu': 350
+        'maxsize_gpu': 350,
+        'ha_pretrain': None,
+        'hp_pretrain': None
     }
 
     if args.train_config:
@@ -275,22 +327,25 @@ def training_mode(args, cuda):
 
     print(json.dumps(train_config), file=sys.stderr)
 
-    net_config = {
-        'ha_size': 128,
-        'hp_size': 700,
-        'g2_size': None
-    }
+    if train_config['ha_pretrain']:
+        logging.info('Loading pretrained weights for h_a layer...')
+        with open(train_config['ha_pretrain'], 'rb') as f:
+            ha_pretrain = torch.load(f)
+    else:
+        logging.info('Loading pretrained weights for h_a layer...')
+        with open('/Users/christianhardmeier/nn-coref.data/anaphoricity-000', 'rb') as f:
+            ha_pretrain = torch.load(f)
+        # ha_pretrain = None
 
-    if args.net_config:
-        with open(args.net_config, 'r') as f:
-            util.recursive_dict_update(net_config, json.load(f))
+    if train_config['hp_pretrain']:
+        logging.info('Loading pretrained weights for h_p layer...')
+        with open(train_config['hp_pretrain'], 'rb') as f:
+            hp_pretrain = torch.load(f)
+    else:
+        hp_pretrain = None
 
-    print(json.dumps(net_config), file=sys.stderr)
-
-    model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap),
-                                net_config['ha_size'], net_config['hp_size'],
-                                hidden_size=net_config['g2_size'],
-                                cuda=cuda)
+    logging.info('Initialising parameters...')
+    init_parameters(model, ha_pretrain=ha_pretrain, hp_pretrain=hp_pretrain)
 
     logging.info('Training model...')
     train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
@@ -298,21 +353,16 @@ def training_mode(args, cuda):
     if args.model_file:
         logging.info('Saving model...')
         with open(args.model_file, 'wb') as f:
-            torch.save(model, f)
+            torch.save(model.state_dict(), f)
 
     return model
 
 
 def test_mode(args, model, cuda):
-    if model is None:
-        if args.model_file is None:
-            logging.error('No model given.')
-            sys.exit(1)
-
+    if args.model_file:
+        logging.info('Loading model...')
         with open(args.model_file, 'rb') as f:
-            model = torch.load(f)
-    elif args.model_file:
-        logging.warning('Using new model for prediction, ignoring --model argument.')
+            model.load_state_dict(torch.load(f))
 
     logging.info('Loading test data...')
     with h5py.File(args.test_file, 'r') as h5:
@@ -344,9 +394,10 @@ def main():
 
     logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
 
-    model = None
+    model = create_model(args, cuda)
+
     if args.train_file:
-        model = training_mode(args, cuda)
+        training_mode(args, cuda)
 
     if args.test_file:
         test_mode(args, model, cuda)

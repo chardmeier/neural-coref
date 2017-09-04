@@ -99,7 +99,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                 cpu_model = model
 
             with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
-                torch.save(cpu_model, f)
+                torch.save(cpu_model.state_dict(), f)
 
         dev_loss = 0.0
         dev_correct = 0
@@ -171,7 +171,7 @@ def main():
 
     if args.model_file:
         with open(args.model_file, 'wb') as f:
-            torch.save(model, f)
+            torch.save(model.state_dict(), f)
 
 
 if __name__ == '__main__':
