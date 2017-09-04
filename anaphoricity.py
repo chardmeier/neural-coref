@@ -118,7 +118,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         dev_acc = dev_correct / dev_total
         logging.info('Epoch %d: train_loss_reg %g / train_loss_unreg %g / dev_loss %g / dev_acc %g' %
-              (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
+                     (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
 def main():
