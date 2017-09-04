@@ -1,12 +1,14 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import features
+import sparse_init
 
 import numpy
 import os
 import torch
 import torch.nn as nn
 
+from torch.autograd import Variable
 # This doesn't seem to be accessible without from ... import
 from torch.nn import init as nn_init
 
@@ -38,10 +40,8 @@ class AnaphoricityLoss(nn.Module):
         return model_loss
 
 
-def train(model, train_config, train_features, train_labels, dev_features, dev_labels):
-    opt = torch.optim.Adagrad(params=model.parameters())
-    loss_fn = AnaphoricityLoss(torch.FloatTensor(train_config['delta_a']))
-    epoch_size = len(train_features.docs)
+def train(model, train_config, training_set, dev_set, cuda=False):
+    epoch_size = len(training_set)
     dot_interval = epoch_size // 80
     print('%d documents per epoch' % epoch_size)
 
@@ -49,9 +49,15 @@ def train(model, train_config, train_features, train_labels, dev_features, dev_l
         # Sparse initialisation similar to Sutskever et al. (ICML 2013)
         # For tanh units, use std 0.25 and set biases to 0.5
         if p.dim() == 2:
-            nn_init.sparse(p, sparsity=0.1, std=0.25)
+            sparse_init.sparse(p, sparsity=0.1, std=0.25)
         else:
             nn_init.constant(p, 0.5)
+
+    if cuda:
+        model = model.cuda()
+
+    opt = torch.optim.Adagrad(params=model.parameters())
+    loss_fn = AnaphoricityLoss(torch.FloatTensor(train_config['delta_a']))
 
     for epoch in range(train_config['nepochs']):
         train_loss_reg = 0.0
@@ -59,11 +65,16 @@ def train(model, train_config, train_features, train_labels, dev_features, dev_l
         for i, idx in enumerate(numpy.random.permutation(epoch_size)):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
-            phi_a = torch.autograd.Variable(train_features.docs[idx].to_dense())
-            labels = torch.autograd.Variable(train_labels[idx])
+
+            if cuda:
+                phi_a = Variable(training_set[idx].anaphoricity_features.long().pin_memory()).cuda(async=True)
+            else:
+                phi_a = Variable(training_set[idx].anaphoricity_features.long())
+
             opt.zero_grad()
 
-            predictions = model(phi_a)
+            predictions = model(phi_a).cpu()
+            labels = Variable(training_set[idx].anaphoricity_labels())
             model_loss = loss_fn(predictions, labels)
 
             reg_loss = sum(p.abs().sum() for p in model.parameters())
@@ -78,12 +89,15 @@ def train(model, train_config, train_features, train_labels, dev_features, dev_l
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
-        for t_phi_a, t_labels in zip(dev_features.docs, dev_labels):
-            phi_a = torch.autograd.Variable(t_phi_a.to_dense())
-            labels = torch.autograd.Variable(t_labels)
+        for doc in dev_set:
+            if cuda:
+                phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), volatile=True).cuda(async=True)
+            else:
+                phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
+            labels = Variable(doc.anaphoricity_labels(), volatile=True)
             docsize = phi_a.size()[0]
             predictions = model(phi_a)
-            dev_correct += torch.sum((predictions.data * t_labels) > 0)
+            dev_correct += torch.sum((predictions * labels) > 0).data
             dev_total += docsize
             dev_loss += loss_fn(predictions, labels).data[0] / docsize
 
