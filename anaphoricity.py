@@ -7,7 +7,9 @@ import argparse
 import copy
 import h5py
 import json
+import logging
 import numpy
+import sys
 import torch
 import torch.nn as nn
 
@@ -46,7 +48,7 @@ class AnaphoricityLoss(nn.Module):
 def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
     epoch_size = len(training_set)
     dot_interval = epoch_size // 80
-    print('%d documents per epoch' % epoch_size)
+    logging.info('%d documents per epoch' % epoch_size)
 
     for p in model.parameters():
         # Sparse initialisation similar to Sutskever et al. (ICML 2013)
@@ -115,7 +117,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             dev_loss += loss_fn(predictions, labels).data[0] / docsize
 
         dev_acc = dev_correct / dev_total
-        print('Epoch %d: train_loss_reg %g / train_loss_unreg %g / dev_loss %g / dev_acc %g' %
+        logging.info('Epoch %d: train_loss_reg %g / train_loss_unreg %g / dev_loss %g / dev_acc %g' %
               (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
@@ -127,6 +129,8 @@ def main():
     parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
     parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
     args = parser.parse_args()
+
+    logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
 
     cuda = torch.cuda.is_available()
 
