@@ -98,7 +98,7 @@ def train(model, train_config, training_set, dev_set, cuda=False):
             labels = Variable(doc.anaphoricity_labels(), volatile=True)
             docsize = phi_a.size()[0]
             predictions = model(phi_a)
-            dev_correct += torch.sum((predictions * labels) > 0).data
+            dev_correct += torch.sum((predictions * labels) > 0).data[0]
             dev_total += docsize
             dev_loss += loss_fn(predictions, labels).data[0] / docsize
 
