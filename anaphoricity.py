@@ -126,6 +126,7 @@ def main():
     parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).', required=True)
     parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).', required=True)
     parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
+    parser.add_argument('--net-config', dest='net_config', help='Network configuration file.')
     parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
     parser.add_argument('--checkpoint', dest='checkpoint', help='File name stem for training checkpoints.')
     args = parser.parse_args()
@@ -146,11 +147,24 @@ def main():
         'delta_a': [1, 1],
         'l1reg': 0.001
     }
+
     if args.train_config:
         with open(args.train_config, 'r') as f:
             util.recursive_dict_update(train_config, json.load(f))
 
-    model = AnaphoricityModel(len(training_set.anaphoricity_fmap), 200)
+    print(json.dumps(train_config), file=sys.stderr)
+
+    net_config = {
+        'ha_size': 128
+    }
+
+    if args.net_config:
+        with open(args.net_config, 'r') as f:
+            util.recursive_dict_update(net_config, json.load(f))
+
+    print(json.dumps(net_config), file=sys.stderr)
+
+    model = AnaphoricityModel(len(training_set.anaphoricity_fmap), net_config['ha_size'])
 
     train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
 

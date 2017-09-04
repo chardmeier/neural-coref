@@ -273,7 +273,23 @@ def training_mode(args, cuda):
         with open(args.train_config, 'r') as f:
             util.recursive_dict_update(train_config, json.load(f))
 
-    model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap), 200, 200,
+    print(json.dumps(train_config), file=sys.stderr)
+
+    net_config = {
+        'ha_size': 128,
+        'hp_size': 700,
+        'g2_size': None
+    }
+
+    if args.net_config:
+        with open(args.net_config, 'r') as f:
+            util.recursive_dict_update(net_config, json.load(f))
+
+    print(json.dumps(net_config), file=sys.stderr)
+
+    model = MentionRankingModel(len(training_set.anaphoricity_fmap), len(training_set.pairwise_fmap),
+                                net_config['ha_size'], net_config['hp_size'],
+                                hidden_size=net_config['g2_size'],
                                 cuda=cuda)
 
     logging.info('Training model...')
