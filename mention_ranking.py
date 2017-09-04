@@ -149,7 +149,26 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     if cuda:
         model = model.cuda()
 
-    opt = torch.optim.Adagrad(params=model.parameters(), lr=train_config['learning_rate'])
+    embedding_layers = []
+    deep_layers = []
+    for name, p in model.named_parameters():
+        if name.startswith('ha_model.') or name.startswith('hp_model.'):
+            embedding_layers.append(p)
+        else:
+            deep_layers.append(p)
+
+    opt_params = [
+        {
+            'params': embedding_layers,
+            'lr': train_config['learning_rate'][0]
+        },
+        {
+            'params': deep_layers,
+            'lr': train_config['learning_rate'][0]
+        }
+    ]
+
+    opt = torch.optim.Adagrad(params=opt_params)
 
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
@@ -310,7 +329,7 @@ def training_mode(args, model, cuda):
     train_config = {
         'nepochs': 100,
         'l1reg': 0.001,
-        'learning_rate': 0.01,
+        'learning_rate': [0.01, 0.01], # for embedding layers and others
         'error_costs': {
             'false_link': 0.5,
             'false_new': 1.2,
