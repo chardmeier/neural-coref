@@ -3,6 +3,7 @@
 import features
 import sparse_init
 
+import copy
 import h5py
 import numpy
 import os
@@ -41,7 +42,7 @@ class AnaphoricityLoss(nn.Module):
         return model_loss
 
 
-def train(model, train_config, training_set, dev_set, cuda=False):
+def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
     epoch_size = len(training_set)
     dot_interval = epoch_size // 80
     print('%d documents per epoch' % epoch_size)
@@ -86,7 +87,17 @@ def train(model, train_config, training_set, dev_set, cuda=False):
 
             loss.backward()
             opt.step()
-        print()
+        print(flush=True)
+
+        if checkpoint:
+            if cuda:
+                cpu_model = copy.deepcopy(model).cpu()
+            else:
+                cpu_model = model
+
+            with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
+                torch.save(cpu_model, f)
+
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
@@ -111,6 +122,7 @@ def main():
     data_path = '/home/nobackup/ch/coref'
     train_file = os.path.join(data_path, 'training.h5')
     dev_file = os.path.join(data_path, 'dev.h5')
+    model_file = os.path.join(data_path, 'anaphoricity.model')
 
     with h5py.File(train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
@@ -125,7 +137,7 @@ def main():
     }
     model = AnaphoricityModel(len(training_set.anaphoricity_fmap), 200)
 
-    train(model, train_config, training_set, dev_set)
+    train(model, train_config, training_set, dev_set, checkpoint=model_file)
 
 
 if __name__ == '__main__':
