@@ -133,7 +133,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     if cuda:
         model = model.cuda()
 
-    opt = torch.optim.Adagrad(params=model.parameters())
+    opt = torch.optim.Adagrad(params=model.parameters(), lr=train_config['learning_rate'])
 
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
@@ -261,6 +261,7 @@ def training_mode(args, cuda):
         'nepochs': 100,
         'delta_a': [1, 1],
         'l1reg': 0.001,
+        'learning_rate': 0.01,
         'error_costs': {
             'false_link': 0.5,
             'false_new': 1.2,

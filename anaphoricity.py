@@ -61,7 +61,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     if cuda:
         model = model.cuda()
 
-    opt = torch.optim.Adagrad(params=model.parameters())
+    opt = torch.optim.Adagrad(params=model.parameters(), lr=train_config['learning_rate'])
     loss_fn = AnaphoricityLoss(torch.FloatTensor(train_config['delta_a']))
 
     for epoch in range(train_config['nepochs']):
@@ -145,6 +145,7 @@ def main():
     train_config = {
         'nepochs': 100,
         'delta_a': [1.35, 1.0],
+        'learning_rate': 0.01,
         'l1reg': 0.001
     }
 
