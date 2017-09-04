@@ -259,7 +259,6 @@ def training_mode(args, cuda):
     # Default settings
     train_config = {
         'nepochs': 100,
-        'delta_a': [1, 1],
         'l1reg': 0.001,
         'learning_rate': 0.01,
         'error_costs': {
