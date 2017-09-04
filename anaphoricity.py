@@ -50,13 +50,13 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     dot_interval = epoch_size // 80
     logging.info('%d documents per epoch' % epoch_size)
 
-    for p in model.parameters():
+    for name, p in model.named_parameters():
         # Sparse initialisation similar to Sutskever et al. (ICML 2013)
         # For tanh units, use std 0.25 and set biases to 0.5
-        if p.dim() == 2:
-            util.sparse(p, sparsity=0.1, std=0.25)
-        else:
+        if name.endswith('bias'):
             nn_init.constant(p, 0.5)
+        else:
+            util.sparse(p, sparsity=0.1, std=0.25)
 
     if cuda:
         model = model.cuda()
