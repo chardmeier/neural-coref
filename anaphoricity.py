@@ -144,7 +144,7 @@ def main():
     # Default settings
     train_config = {
         'nepochs': 100,
-        'delta_a': [1, 1],
+        'delta_a': [1.35, 1.0],
         'l1reg': 0.001
     }
 
