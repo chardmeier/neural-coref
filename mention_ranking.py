@@ -173,12 +173,12 @@ def filter_for_pretrain_hp(corpus):
         ncands = doc.nmentions * (doc.nmentions - 1) // 2
         anaphoric_mask = torch.zeros(ncands).long()
         doc_solutions = []
-        sizes = []
+        doc_sizes = []
         k = 0
         for j in range(doc.nmentions):
             if doc.is_anaphoric(j):
                 anaphoric_mask[k:(k + j)] = 1
-                sizes.append(j)
+                doc_sizes.append(j)
                 sol = torch.ByteTensor(j).zero_()
                 cluster_id = doc.mention_to_opc[j]
                 for l in doc.opc_clusters[cluster_id]:
@@ -191,7 +191,7 @@ def filter_for_pretrain_hp(corpus):
         filtered_phi_p = doc.pairwise_features[anaphoric_mask, :].long()
 
         feats.append(filtered_phi_p)
-        sizes.append(sizes)
+        sizes.append(doc_sizes)
         solutions.append(doc_solutions)
 
     return feats, sizes, solutions
@@ -230,8 +230,8 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
             loss = model_loss + train_config['l1reg'] * reg_loss
 
-            train_loss_unreg += model_loss.data[0] / len(sizes)
-            train_loss_reg += loss.data[0] / len(sizes)
+            train_loss_unreg += model_loss.data[0] / len(train_sizes[idx])
+            train_loss_reg += loss.data[0] / len(train_sizes[idx])
 
             loss.backward()
             opt.step()
