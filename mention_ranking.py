@@ -132,8 +132,8 @@ class AntecedentRankingPretrainingModel(torch.nn.Module):
             m_scores = ana_scores[idx:(idx + sz)]
             idx = idx + sz
 
-            best_score, best_idx = torch.max(m_scores)
-            if sol[best_idx] == 0:
+            best_score, best_idx = torch.max(m_scores, 0)
+            if not sol[best_idx].data[0]:
                 best_correct = torch.max(m_scores[sol])
                 loss += 1.0 + best_correct - best_score
 
@@ -176,7 +176,8 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
     train_sizes = []
     train_solutions = []
     for i, doc in enumerate(training_set):
-        anaphoric_mask = torch.zeros(epoch_size).long()
+        ncands = doc.nmentions * (doc.nmentions - 1) // 2
+        anaphoric_mask = torch.zeros(ncands).long()
         solutions = []
         sizes = []
         k = 0
@@ -184,7 +185,7 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             if doc.is_anaphoric(j):
                 anaphoric_mask[k:(k + j)] = 1
                 sizes.append(j)
-                sol = torch.zeros(j)
+                sol = torch.ByteTensor(j).zero_()
                 cluster_id = doc.mention_to_opc[j]
                 for l in doc.opc_clusters[cluster_id]:
                     if l >= j:
@@ -220,8 +221,8 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
             loss = model_loss + train_config['l1reg'] * reg_loss
 
-            train_loss_unreg += model_loss.data[0] / sizes.size()[0]
-            train_loss_reg += loss.data[0] / sizes.size()[0]
+            train_loss_unreg += model_loss.data[0] / len(sizes)
+            train_loss_reg += loss.data[0] / len(sizes)
 
             loss.backward()
             opt.step()
