@@ -217,6 +217,10 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
+            if len(train_sizes[idx]) == 0:
+                # no anaphoric mentions in document
+                continue
+
             opt.zero_grad()
 
             if cuda:
