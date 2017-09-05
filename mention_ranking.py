@@ -114,6 +114,32 @@ class MentionRankingLoss(torch.nn.Module):
         return loss
 
 
+class AntecedentRankingPretrainingModel(torch.nn.Module):
+    def __init__(self, phi_p_size, hp_size):
+        super(AntecedentRankingPretrainingModel, self).__init__()
+        self.hp_model = HModel(phi_p_size, hp_size)
+        self.ana_scoring_model = torch.nn.Linear(hp_size, 1)
+
+    # phi_p can be a CUDA tensor, costs and sizes should always be on the CPU
+    # result is on the CPU
+    def forward(self, phi_p, solutions, sizes):
+        h_p = self.hp_model(phi_p)
+        ana_scores = self.ana_scoring_model(h_p).cpu()
+
+        loss = Variable(torch.zeros(1))
+        idx = 0
+        for sol, sz in zip(solutions, sizes):
+            m_scores = ana_scores[idx:(idx + sz)]
+            idx = idx + sz
+
+            best_score, best_idx = torch.max(m_scores)
+            if sol[best_idx] == 0:
+                best_correct = torch.max(m_scores[sol])
+                loss += 1.0 + best_correct - best_score
+
+        return loss
+
+
 def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
     pretrained_params = {}
 
@@ -137,6 +163,74 @@ def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
                 nn_init.constant(p, 0.5)
             else:
                 util.sparse(p, sparsity=0.1, std=0.25)
+
+
+def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
+    epoch_size = len(training_set)
+    dot_interval = max(epoch_size // 80, 1)
+    logging.info('%d documents per epoch' % epoch_size)
+
+    opt = torch.optim.Adagrad(params=model.parameters(), lr=train_config['learning_rate'][1])
+
+    train_features = []
+    train_sizes = []
+    train_solutions = []
+    for i, doc in enumerate(training_set):
+        anaphoric_mask = torch.zeros(epoch_size).long()
+        solutions = []
+        sizes = []
+        k = 0
+        for j in range(doc.nmentions):
+            if doc.is_anaphoric(j):
+                anaphoric_mask[k:(k + j)] = 1
+                sizes.append(j)
+                sol = torch.zeros(j - 1)
+                cluster_id = doc.mention_to_opc[j]
+                for l in doc.opc_clusters[cluster_id]:
+                    if l >= j:
+                        break
+                    sol[l] = 1
+                solutions.append(sol)
+            k = k + j
+
+        filtered_phi_p = doc.pairwise_features[anaphoric_mask, :].long()
+
+        train_features.append(filtered_phi_p)
+        train_sizes.append(sizes)
+        train_solutions.append(solutions)
+
+    logging.info('Starting training...')
+    for epoch in range(train_config['nepochs']):
+        train_loss_reg = 0.0
+        train_loss_unreg = 0.0
+        for i, idx in enumerate(numpy.random.permutation(epoch_size)):
+            if (i + 1) % dot_interval == 0:
+                print('.', end='', flush=True)
+
+            opt.zero_grad()
+
+            if cuda:
+                phi_p = Variable(train_features[idx].pin_memory()).cuda(async=True)
+            else:
+                phi_p = Variable(train_features[idx])
+
+            solutions = [Variable(sol) for sol in train_solutions[idx]]
+            model_loss = model(phi_p, solutions, train_sizes[idx])
+
+            reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
+            loss = model_loss + train_config['l1reg'] * reg_loss
+
+            train_loss_unreg += model_loss.data[0] / sizes.size()[0]
+            train_loss_reg += loss.data[0] / sizes.size()[0]
+
+            loss.backward()
+            opt.step()
+
+            del loss
+            del model_loss
+            del reg_loss
+
+        print(flush=True)
 
 
 def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
@@ -279,18 +373,73 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
     return predictions
 
 
-def create_model(args, cuda):
+def load_net_config(file):
     net_config = {
         'ha_size': 128,
         'hp_size': 700,
         'g2_size': None
     }
 
-    if args.net_config:
-        with open(args.net_config, 'r') as f:
+    if file:
+        with open(file, 'r') as f:
             util.recursive_dict_update(net_config, json.load(f))
 
-    print(json.dumps(net_config), file=sys.stderr)
+    return net_config
+
+
+def load_train_config(file):
+    train_config = {
+        'nepochs': 100,
+        'l1reg': 0.001,
+        'learning_rate': [0.01, 0.01], # for embedding layers and others
+        'error_costs': {
+            'false_link': 0.5,
+            'false_new': 1.2,
+            'wrong_link': 1.0
+        },
+        'maxsize_gpu': 350,
+        'ha_pretrain': None,
+        'hp_pretrain': None
+    }
+
+    if file:
+        with open(file, 'r') as f:
+            util.recursive_dict_update(train_config, json.load(f))
+
+    return train_config
+
+
+def pretraining_mode(args, cuda):
+    net_config = load_net_config(args.net_config)
+    print('net_config ' + json.dumps(net_config), file=sys.stderr)
+
+    train_config = load_train_config(args.train_config)
+    print('train_config ' + json.dumps(train_config), file=sys.stderr)
+
+    logging.info('Loading training data...')
+    with h5py.File(args.train_file, 'r') as h5:
+        training_set = features.load_from_hdf5(h5)
+
+    logging.info('Loading development data...')
+    with h5py.File(args.dev_file, 'r') as h5:
+        dev_set = features.load_from_hdf5(h5)
+
+    pairwise_fsize = len(training_set.pairwise_fmap)
+
+    model = AntecedentRankingPretrainingModel(pairwise_fsize, net_config['hp_size'])
+    pretrain_hp(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
+
+    if args.model_file:
+        logging.info('Saving model...')
+        with open(args.model_file, 'wb') as f:
+            torch.save(model.state_dict(), f)
+
+    return model
+
+
+def create_model(args, cuda):
+    net_config = load_net_config(args.net_config)
+    print('net_config ' + json.dumps(net_config), file=sys.stderr)
 
     if args.train_file:
         h5_file = args.train_file
@@ -314,6 +463,9 @@ def create_model(args, cuda):
 
 
 def training_mode(args, model, cuda):
+    train_config = load_train_config(args.train_config)
+    print('train_config ' + json.dumps(train_config), file=sys.stderr)
+
     logging.info('Loading training data...')
     with h5py.File(args.train_file, 'r') as h5:
         training_set = features.load_from_hdf5(h5)
@@ -321,27 +473,6 @@ def training_mode(args, model, cuda):
     logging.info('Loading development data...')
     with h5py.File(args.dev_file, 'r') as h5:
         dev_set = features.load_from_hdf5(h5)
-
-    # Default settings
-    train_config = {
-        'nepochs': 100,
-        'l1reg': 0.001,
-        'learning_rate': [0.01, 0.01], # for embedding layers and others
-        'error_costs': {
-            'false_link': 0.5,
-            'false_new': 1.2,
-            'wrong_link': 1.0
-        },
-        'maxsize_gpu': 350,
-        'ha_pretrain': None,
-        'hp_pretrain': None
-    }
-
-    if args.train_config:
-        with open(args.train_config, 'r') as f:
-            util.recursive_dict_update(train_config, json.load(f))
-
-    print(json.dumps(train_config), file=sys.stderr)
 
     if train_config['ha_pretrain']:
         logging.info('Loading pretrained weights for h_a layer...')
@@ -393,6 +524,8 @@ def main():
     parser.add_argument('--predict', dest='test_file', help='Test corpus to predict on (HDF5).')
     parser.add_argument('--train', dest='train_file', help='Training corpus (HDF5).')
     parser.add_argument('--dev', dest='dev_file', help='Development corpus (HDF5).')
+    parser.add_argument('--pretrain-hp', dest='pretrain_hp', action='store_true',
+                        help='Pretrain h_p model instead of training full model.')
     parser.add_argument('--train-config', dest='train_config', help='Training configuration file.')
     parser.add_argument('--net-config', dest='net_config', help='Network configuration file.')
     parser.add_argument('--model', dest='model_file', help='File name for the trained model.')
@@ -407,13 +540,16 @@ def main():
 
     logging.basicConfig(stream=sys.stderr, format='%(asctime)-15s %(message)s', level=logging.DEBUG)
 
-    model = create_model(args, cuda)
+    if args.pretrain_hp:
+        pretraining_mode(args, cuda)
+    else:
+        model = create_model(args, cuda)
 
-    if args.train_file:
-        training_mode(args, model, cuda)
+        if args.train_file:
+            training_mode(args, model, cuda)
 
-    if args.test_file:
-        test_mode(args, model, cuda)
+        if args.test_file:
+            test_mode(args, model, cuda)
 
 
 if __name__ == '__main__':
