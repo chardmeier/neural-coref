@@ -85,6 +85,11 @@ class CorefCorpus:
         else:
             return self.docs[key]
 
+    def truncate_docs(self, nmentions):
+        truncated_docs = [doc.truncate(nmentions) for doc in self.docs]
+        ntruncated = sum(t.nmentions < o.nmentions for t, o in zip(truncated_docs, self.docs))
+        return CorefCorpus(self.anaphoricity_fmap, self.pairwise_fmap, truncated_docs), ntruncated
+
     def save_to_hdf5(self, h5_group):
         enc_fmap = [ft.encode('utf-8') for ft in self.anaphoricity_fmap]
         maxlen = max(len(ft) for ft in enc_fmap)
@@ -151,6 +156,15 @@ class CorefDocument:
     def anaphoricity_labels(self):
         # returns N x 1 matrix
         return torch.FloatTensor([[1] if self.is_anaphoric(m) else [-1] for m in range(self.nmentions)])
+
+    def truncate(self, nmentions):
+        if self.nmentions <= nmentions:
+            return self
+        else:
+            trunc_anaph = self.anaphoricity_features[:nmentions, :]
+            trunc_pw = self.pairwise_features[:(nmentions * (nmentions - 1) // 2), :]
+            trunc_opc_m2c = self.mention_to_opc[:nmentions]
+            return CorefDocument(self.anaphoricity_dim, trunc_anaph, self.pairwise_dim, trunc_pw, trunc_opc_m2c)
 
 
 def _convert_and_truncate(inp):

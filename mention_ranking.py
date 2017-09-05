@@ -170,18 +170,16 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
     opt = torch.optim.Adagrad(params=opt_params)
 
+    training_set, truncated = training_set.truncate_docs(train_config['maxsize_gpu'])
+    logging.info('Truncated %d/%d documents.' % (truncated, len(training_set)))
+
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
         train_loss_reg = 0.0
         train_loss_unreg = 0.0
-        skipped = 0
         for i, idx in enumerate(numpy.random.permutation(epoch_size)):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
-
-            if training_set[idx].nmentions > train_config['maxsize_gpu']:
-                skipped += 1
-                continue
 
             solution_mask = Variable(training_set[idx].solution_mask)
 
@@ -212,7 +210,6 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             del reg_loss
 
         print(flush=True)
-        logging.info('Skipped %d/%d documents.' % (skipped, len(training_set)))
 
         if cuda:
             cpu_model = copy.deepcopy(model).cpu()
