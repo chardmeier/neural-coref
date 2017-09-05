@@ -184,7 +184,7 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             if doc.is_anaphoric(j):
                 anaphoric_mask[k:(k + j)] = 1
                 sizes.append(j)
-                sol = torch.zeros(j - 1)
+                sol = torch.zeros(j)
                 cluster_id = doc.mention_to_opc[j]
                 for l in doc.opc_clusters[cluster_id]:
                     if l >= j:
