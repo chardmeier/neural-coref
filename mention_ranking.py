@@ -165,20 +165,14 @@ def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
                 util.sparse(p, sparsity=0.1, std=0.25)
 
 
-def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
-    epoch_size = len(training_set)
-    dot_interval = max(epoch_size // 80, 1)
-    logging.info('%d documents per epoch' % epoch_size)
-
-    opt = torch.optim.Adagrad(params=model.parameters(), lr=train_config['learning_rate'][1])
-
-    train_features = []
-    train_sizes = []
-    train_solutions = []
-    for i, doc in enumerate(training_set):
+def filter_for_pretrain_hp(corpus):
+    feats = []
+    sizes = []
+    solutions = []
+    for i, doc in enumerate(corpus):
         ncands = doc.nmentions * (doc.nmentions - 1) // 2
         anaphoric_mask = torch.zeros(ncands).long()
-        solutions = []
+        doc_solutions = []
         sizes = []
         k = 0
         for j in range(doc.nmentions):
@@ -191,14 +185,29 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
                     if l >= j:
                         break
                     sol[l] = 1
-                solutions.append(sol)
+                doc_solutions.append(sol)
             k = k + j
 
         filtered_phi_p = doc.pairwise_features[anaphoric_mask, :].long()
 
-        train_features.append(filtered_phi_p)
-        train_sizes.append(sizes)
-        train_solutions.append(solutions)
+        feats.append(filtered_phi_p)
+        sizes.append(sizes)
+        solutions.append(doc_solutions)
+
+    return feats, sizes, solutions
+
+
+def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
+    epoch_size = len(training_set)
+
+    dot_interval = max(epoch_size // 80, 1)
+    logging.info('%d documents per epoch' % epoch_size)
+
+    opt = torch.optim.Adagrad(params=model.parameters(), lr=train_config['learning_rate'][1])
+
+    logging.info('Filtering corpora for pretraining...')
+    train_features, train_sizes, train_solutions = filter_for_pretrain_hp(training_set)
+    dev_features, dev_sizes, dev_solutions = filter_for_pretrain_hp(dev_set)
 
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
@@ -232,6 +241,19 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             del reg_loss
 
         print(flush=True)
+
+        dev_loss = 0.0
+        for docft, docsz, docsol in zip(dev_features, dev_sizes, dev_solutions):
+            if cuda:
+                phi_p = Variable(docft.pin_memory(), volatile=True).cuda(async=True)
+            else:
+                phi_p = Variable(docft, volatile=True)
+
+            solutions = [Variable(sol, volatile=True) for sol in docsol]
+            dev_loss += model(phi_p, solutions, docsz).data[0]
+
+        logging.info('Epoch %d: train_loss_reg %g / train_loss_unreg %g / dev_loss %g' %
+                     (epoch, train_loss_reg, train_loss_unreg, dev_loss))
 
 
 def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
