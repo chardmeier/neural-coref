@@ -246,6 +246,17 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
 
         print(flush=True)
 
+        if cuda:
+            cpu_model = copy.deepcopy(model).cpu()
+        else:
+            cpu_model = model
+
+        if checkpoint:
+            logging.info('Saving checkpoint...')
+            with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
+                torch.save(cpu_model.state_dict(), f)
+
+        logging.info('Computing devset performance...')
         dev_loss = 0.0
         for docft, docsz, docsol in zip(dev_features, dev_sizes, dev_solutions):
             if cuda:
