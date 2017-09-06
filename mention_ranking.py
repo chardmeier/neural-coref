@@ -437,7 +437,7 @@ def load_train_config(file):
             'false_new': 1.2,
             'wrong_link': 1.0
         },
-        'maxsize_gpu': 250,
+        'maxsize_gpu': 230,
         'ha_pretrain': None,
         'hp_pretrain': None
     }
