@@ -98,7 +98,7 @@ class MentionRankingLoss(torch.nn.Module):
         # we can't use infinity here because otherwise multiplication by 0 is NaN
         minimum_score = scores.min()
         solution_scores = solution_mask * scores + (1.0 - solution_mask) * minimum_score.expand_as(scores)
-        best_correct = solution_scores.max(dim=1)[0]
+        best_correct = solution_scores.max(dim=1)[0].unsqueeze(1)
 
         # The following calculations create a tensor in which each component contains the right loss penalty:
         # 0 for correct predictions, cost[0..2] for false link, false new and wrong link, respectively
@@ -109,7 +109,9 @@ class MentionRankingLoss(torch.nn.Module):
         potential_costs[torch.eye(scores.size()[0]).byte()] = self.false_new_cost
         cost_matrix = (1.0 - solution_mask) * potential_costs
 
-        loss = torch.sum(cost_matrix * (1.0 + scores - best_correct.expand_as(scores)))
+        loss_values = cost_matrix * (1.0 + scores - best_correct.expand_as(scores))
+        loss_per_example = torch.max(loss_values, dim=1)[0]
+        loss = torch.sum(loss_per_example)
 
         return loss
 
