@@ -104,7 +104,7 @@ class MentionRankingLoss(torch.nn.Module):
         # 0 for correct predictions, cost[0..2] for false link, false new and wrong link, respectively
         non_anaphoric = torch.diag(solution_mask)
         anaphoricity_selector = torch.stack([non_anaphoric, 1 - non_anaphoric], dim=1).float()
-        link_costs = Variable(self.link_costs)
+        link_costs = Variable(self.link_costs, requires_grad=False)
         # tril() suppresses cataphoric and self-references
         potential_costs = torch.tril(torch.mm(anaphoricity_selector, link_costs.expand(2, scores.size()[1])), -1)
         potential_costs[torch.eye(scores.size()[0]).byte()] = self.false_new_cost
@@ -316,17 +316,19 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
-            solution_mask = Variable(training_set[idx].solution_mask)
+            solution_mask = Variable(training_set[idx].solution_mask, requires_grad=False)
 
             opt.zero_grad()
 
             if cuda:
-                phi_a = Variable(training_set[idx].anaphoricity_features.long().pin_memory()).cuda(async=True)
-                phi_p = Variable(training_set[idx].pairwise_features.long().pin_memory()).cuda(async=True)
+                phi_a = Variable(training_set[idx].anaphoricity_features.long().pin_memory(), requires_grad=False).\
+                    cuda(async=True)
+                phi_p = Variable(training_set[idx].pairwise_features.long().pin_memory(), requires_grad=False).\
+                    cuda(async=True)
                 scores = model(phi_a, phi_p).cpu()
             else:
-                phi_a = Variable(training_set[idx].anaphoricity_features.long())
-                phi_p = Variable(training_set[idx].pairwise_features.long())
+                phi_a = Variable(training_set[idx].anaphoricity_features.long(), requires_grad=False)
+                phi_p = Variable(training_set[idx].pairwise_features.long(), requires_grad=False)
                 scores = model(phi_a, phi_p).cpu()
 
             model_loss = loss_fn(scores, solution_mask)
