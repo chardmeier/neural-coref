@@ -146,7 +146,7 @@ class CorefDocument:
             for m in c:
                 self.solution_mask[m, :] = cluster_mask
         self.solution_mask.tril_(-1)
-        eps = torch.eq(self.solution_mask.sum(dim=0, keepdim=False), 0).float()
+        eps = torch.eq(self.solution_mask.sum(dim=1, keepdim=False), 0).float()
         self.solution_mask[torch.eye(self.nmentions).byte()] = eps
 
     def is_anaphoric(self, mention):
