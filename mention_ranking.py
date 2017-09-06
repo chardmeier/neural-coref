@@ -76,46 +76,60 @@ class MentionRankingModel(torch.nn.Module):
         h_combined[:, self.ha_size:] = self.hp_model(all_phi_p)
         ana_scores = self.ana_scoring_model(h_combined)
 
-        all_scores = torch.autograd.Variable(torch.zeros(nmentions, nmentions))
-
-        # Put epsilon scores on the main diagonal
-        eps_idx = torch.eye(nmentions).byte()
-        all_scores[eps_idx] = to_cpu(eps_scores)
-
-        # Put anaphoric scores in the triangular part below the diagonal
-        ana_idx = torch.tril(torch.ones(nmentions, nmentions).byte(), -1)
-        all_scores[ana_idx] = to_cpu(ana_scores)
-
-        return all_scores
+        return eps_scores, ana_scores
 
 
-class MentionRankingLoss(torch.nn.Module):
+def create_score_matrix(eps_scores, ana_scores):
+    nmentions = eps_scores.size()[0]
+
+    all_scores = Variable(torch.zeros(nmentions, nmentions))
+
+    # Put epsilon scores on the main diagonal
+    eps_idx = torch.eye(nmentions).byte()
+    all_scores[eps_idx] = to_cpu(eps_scores)
+
+    # Put anaphoric scores in the triangular part below the diagonal
+    ana_idx = torch.tril(torch.ones(nmentions, nmentions).byte(), -1)
+    all_scores[ana_idx] = to_cpu(ana_scores)
+
+    return all_scores
+
+
+class MentionRankingLoss:
     def __init__(self, costs):
         super(MentionRankingLoss, self).__init__()
         self.false_new_cost = costs['false_new']
         self.link_costs = torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]])
 
-    def forward(self, scores, solution_mask):
+    def find_margin(self, eps_scores, ana_scores, solution_mask):
+        scores = create_score_matrix(eps_scores, ana_scores)
+
         # we can't use infinity here because otherwise multiplication by 0 is NaN
         minimum_score = scores.min()
         solution_scores = solution_mask * scores + (1.0 - solution_mask) * minimum_score.expand_as(scores)
-        best_correct = solution_scores.max(dim=1)[0].unsqueeze(1)
+        best_correct, best_correct_idx = solution_scores.max(dim=1)
+        highest_scoring, highest_scoring_idx = scores.max(dim=1)
 
         # The following calculations create a tensor in which each component contains the right loss penalty:
         # 0 for correct predictions, cost[0..2] for false link, false new and wrong link, respectively
         non_anaphoric = torch.diag(solution_mask)
         anaphoricity_selector = torch.stack([non_anaphoric, 1 - non_anaphoric], dim=1).float()
-        link_costs = Variable(self.link_costs, requires_grad=False)
         # tril() suppresses cataphoric and self-references
-        potential_costs = torch.tril(torch.mm(anaphoricity_selector, link_costs.expand(2, scores.size()[1])), -1)
+        potential_costs = torch.tril(torch.mm(anaphoricity_selector, self.link_costs.expand(2, scores.size()[1])), -1)
         potential_costs[torch.eye(scores.size()[0]).byte()] = self.false_new_cost
         cost_matrix = (1.0 - solution_mask) * potential_costs
+        cost_values = cost_matrix[:, highest_scoring_idx]
 
-        loss_values = cost_matrix * (1.0 + scores - best_correct.expand_as(scores))
-        loss_per_example = torch.max(loss_values, dim=1)[0]
+        return best_correct_idx, highest_scoring_idx, cost_values
+
+        loss_values = cost_matrix * (1.0 + scores - best_correct.unsqueeze(1).expand_as(scores))
+        loss_per_example, loss_idx = torch.max(loss_values, dim=1)
+        offsets = Variable(torch.cumsum(torch.arange(0, loss_idx.size()[0]).long(), 0), requires_grad=False)
+        loss_idx = loss_idx + offsets
+
         loss = torch.sum(loss_per_example)
 
-        return loss
+        return loss, loss_idx
 
 
 class AntecedentRankingPretrainingModel(torch.nn.Module):
@@ -317,8 +331,6 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
 
-            solution_mask = Variable(training_set[idx].solution_mask, requires_grad=False)
-
             opt.zero_grad()
 
             if cuda:
@@ -326,13 +338,45 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                     cuda(async=True)
                 phi_p = Variable(training_set[idx].pairwise_features.long().pin_memory(), requires_grad=False).\
                     cuda(async=True)
-                scores = to_cpu(model(phi_a, phi_p))
             else:
                 phi_a = Variable(training_set[idx].anaphoricity_features.long(), requires_grad=False)
                 phi_p = Variable(training_set[idx].pairwise_features.long(), requires_grad=False)
-                scores = to_cpu(model(phi_a, phi_p))
 
-            model_loss = loss_fn(scores, solution_mask)
+            # First do the full computation without gradients
+            phi_a.volatile = True
+            phi_p.volatile = True
+            all_eps_scores, all_ana_scores = to_cpu(model(phi_a, phi_p))
+            solution_mask = training_set[idx].solution_mask
+            best_correct_idx, highest_scoring_idx, cost_values =\
+                loss_fn.find_margin(all_eps_scores, all_ana_scores, solution_mask)
+
+            # Then turn on gradients and run on loss-contributing elements only
+            misclassified = torch.gt(cost_values.data, 0.0)
+            nmisclassified = torch.sum(misclassified)[0]
+            if nmisclassified == 0:
+                # no misclassified instances
+                continue
+
+            # Flag epsilons
+            cand_idx = torch.stack([best_correct_idx.data, highest_scoring_idx.data], dim=1)
+            example_no = torch.arange(0, training_set[idx].nmentions).long().unsqueeze(1).expand_as(cand_idx)
+            is_epsilon = torch.eq(cand_idx, example_no)
+            cand_mask = is_epsilon * misclassified.unsqueeze(1).expand_as(is_epsilon)
+            cand_idx.add_(example_no)
+            relevant_cands = cand_idx[cand_mask]
+
+            phi_a.volatile = False
+            phi_p.volatile = False
+            sub_phi_a = phi_a[misclassified, :]
+            sub_phi_p = phi_p[relevant_cands, :]
+            sub_eps_scores, sub_ana_scores = to_cpu(model(sub_phi_a, sub_phi_p))
+
+            scores = Variable(torch.zeros(nmisclassified, 2))
+            scores[cand_mask] = sub_ana_scores
+            needs_eps = torch.gt(torch.sum(is_epsilon, dim=1), 0)
+            scores[1 - cand_mask] = sub_eps_scores[needs_eps]
+
+            model_loss = torch.sum(cost_values * scores[:, 0] - scores[:, 1])
 
             reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
