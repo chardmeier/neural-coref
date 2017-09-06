@@ -92,7 +92,7 @@ class MentionRankingLoss(torch.nn.Module):
     def __init__(self, costs):
         super(MentionRankingLoss, self).__init__()
         self.false_new_cost = costs['false_new']
-        self.link_costs = Variable(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
+        self.link_costs = torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]])
 
     def forward(self, scores, solution_mask):
         # we can't use infinity here because otherwise multiplication by 0 is NaN
@@ -104,8 +104,9 @@ class MentionRankingLoss(torch.nn.Module):
         # 0 for correct predictions, cost[0..2] for false link, false new and wrong link, respectively
         non_anaphoric = torch.diag(solution_mask)
         anaphoricity_selector = torch.stack([non_anaphoric, 1 - non_anaphoric], dim=1).float()
+        link_costs = Variable(self.link_costs)
         # tril() suppresses cataphoric and self-references
-        potential_costs = torch.tril(torch.mm(anaphoricity_selector, self.link_costs.expand(2, scores.size()[1])), -1)
+        potential_costs = torch.tril(torch.mm(anaphoricity_selector, link_costs.expand(2, scores.size()[1])), -1)
         potential_costs[torch.eye(scores.size()[0]).byte()] = self.false_new_cost
         cost_matrix = (1.0 - solution_mask) * potential_costs
 
