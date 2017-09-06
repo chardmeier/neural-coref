@@ -8,6 +8,13 @@ import torch
 from torch.autograd import Variable
 
 
+def to_cpu(tensor):
+    if tensor.is_cuda:
+        return tensor.cpu()
+    else:
+        return tensor
+
+
 # from https://stackoverflow.com/a/3233356
 def recursive_dict_update(d, u):
     for k, v in u.items():

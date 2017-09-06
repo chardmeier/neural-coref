@@ -15,6 +15,7 @@ import torch
 from torch.autograd import Variable
 # This doesn't seem to be accessible without from ... import
 from torch.nn import init as nn_init
+from util import to_cpu
 
 
 class HModel(torch.nn.Module):
@@ -79,11 +80,11 @@ class MentionRankingModel(torch.nn.Module):
 
         # Put epsilon scores on the main diagonal
         eps_idx = torch.eye(nmentions).byte()
-        all_scores[eps_idx] = eps_scores.cpu()
+        all_scores[eps_idx] = to_cpu(eps_scores)
 
         # Put anaphoric scores in the triangular part below the diagonal
         ana_idx = torch.tril(torch.ones(nmentions, nmentions).byte(), -1)
-        all_scores[ana_idx] = ana_scores.cpu()
+        all_scores[ana_idx] = to_cpu(ana_scores)
 
         return all_scores
 
@@ -127,7 +128,7 @@ class AntecedentRankingPretrainingModel(torch.nn.Module):
     # result is on the CPU
     def forward(self, phi_p, solutions, sizes):
         h_p = self.hp_model(phi_p)
-        ana_scores = self.ana_scoring_model(h_p).cpu()
+        ana_scores = to_cpu(self.ana_scoring_model(h_p))
 
         loss = Variable(torch.zeros(1))
         idx = 0
@@ -234,7 +235,7 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
             solutions = [Variable(sol) for sol in train_solutions[idx]]
             model_loss = model(phi_p, solutions, train_sizes[idx])
 
-            reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
+            reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
 
             train_loss_unreg += model_loss.data[0] / len(train_sizes[idx])
@@ -325,15 +326,15 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                     cuda(async=True)
                 phi_p = Variable(training_set[idx].pairwise_features.long().pin_memory(), requires_grad=False).\
                     cuda(async=True)
-                scores = model(phi_a, phi_p).cpu()
+                scores = to_cpu(model(phi_a, phi_p))
             else:
                 phi_a = Variable(training_set[idx].anaphoricity_features.long(), requires_grad=False)
                 phi_p = Variable(training_set[idx].pairwise_features.long(), requires_grad=False)
-                scores = model(phi_a, phi_p).cpu()
+                scores = to_cpu(model(phi_a, phi_p))
 
             model_loss = loss_fn(scores, solution_mask)
 
-            reg_loss = sum(p.abs().sum() for p in model.parameters()).cpu()
+            reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
 
             train_loss_unreg += model_loss.data[0] / phi_a.size()[0]
@@ -368,7 +369,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                     cuda(async=True)
                 phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True).\
                     cuda(async=True)
-                predictions = model(phi_a, phi_p).cpu()
+                predictions = to_cpu(model(phi_a, phi_p))
             else:
                 phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
                 phi_p = Variable(doc.pairwise_features.long(), volatile=True)
@@ -402,7 +403,7 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
                 cuda(async=True)
             phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True). \
                 cuda(async=True)
-            doc_pred = model(phi_a, phi_p).cpu()
+            doc_pred = to_cpu(model(phi_a, phi_p))
         else:
             phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
             phi_p = Variable(doc.pairwise_features.long(), volatile=True)
