@@ -99,10 +99,67 @@ def create_score_matrix(eps_scores, ana_scores):
 
 
 class MentionRankingLoss:
-    def __init__(self, costs):
+    def __init__(self, model, costs, cuda=False):
         super(MentionRankingLoss, self).__init__()
+        self.model = model
         self.false_new_cost = costs['false_new']
         self.link_costs = torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]])
+        self.cuda = cuda
+
+    def compute_loss(self, doc):
+        if self.cuda:
+            phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), requires_grad=False). \
+                cuda(async=True)
+            phi_p = Variable(doc.pairwise_features.long().pin_memory(), requires_grad=False). \
+                cuda(async=True)
+        else:
+            phi_a = Variable(doc.anaphoricity_features.long(), requires_grad=False)
+            phi_p = Variable(doc.pairwise_features.long(), requires_grad=False)
+
+        # First do the full computation without gradients
+        phi_a.volatile = True
+        phi_p.volatile = True
+        all_eps_scores, all_ana_scores = to_cpu(self.model(phi_a, phi_p))
+        solution_mask = doc.solution_mask
+        best_correct_idx, highest_scoring_idx, cost_values = \
+            self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
+
+        # Then turn on gradients and run on loss-contributing elements only
+        misclassified = torch.gt(cost_values, 0.0)
+        misclassified_idx = misclassified.nonzero()[:, 0]
+        nmisclassified = misclassified_idx.size()[0]
+        if nmisclassified == 0:
+            # no misclassified instances
+            return Variable(torch.zeros(1), requires_grad=False)
+
+        # Flag epsilons
+        cand_idx = torch.stack([best_correct_idx, highest_scoring_idx], dim=1)
+        example_no = torch.arange(0, doc.nmentions).long().unsqueeze(1).expand_as(cand_idx)
+        is_epsilon = torch.eq(cand_idx, example_no)
+        sub_is_epsilon = is_epsilon[misclassified_idx]
+        cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
+        sub_cand_mask = cand_mask[misclassified_idx]
+        example_offsets = torch.cumsum(torch.cat([torch.zeros(1, 2).long(),
+                                                  example_no[:(doc.nmentions - 1), :]]), 0)
+        cand_idx_in_doc = cand_idx + example_offsets
+        relevant_cands = cand_idx_in_doc[cand_mask]
+
+        phi_a.volatile = False
+        phi_p.volatile = False
+        sub_phi_a = phi_a[misclassified_idx, :]
+        sub_phi_p = phi_p[relevant_cands, :]
+        cand_subset = torch.sum(sub_cand_mask, dim=1)
+        sub_eps_scores, sub_ana_scores = to_cpu(self.model(sub_phi_a, sub_phi_p, cand_subset=cand_subset))
+
+        scores = Variable(torch.zeros(nmisclassified, 2))
+        scores[sub_cand_mask] = sub_ana_scores
+        needs_eps = torch.gt(torch.sum(sub_is_epsilon, dim=1), 0)
+        scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
+
+        var_cost_values = Variable(cost_values, requires_grad=False)
+        model_loss = torch.sum(var_cost_values * (1.0 + scores[:, 0] - scores[:, 1]))
+
+        return model_loss
 
     def find_margin(self, eps_scores, ana_scores, solution_mask):
         scores = create_score_matrix(eps_scores, ana_scores)
@@ -293,8 +350,6 @@ def pretrain_hp(model, train_config, training_set, dev_set, checkpoint=None, cud
 
 
 def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
-    loss_fn = MentionRankingLoss(train_config['error_costs'])
-
     epoch_size = len(training_set)
     dot_interval = max(epoch_size // 80, 1)
     logging.info('%d documents per epoch' % epoch_size)
@@ -326,6 +381,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     training_set, truncated = training_set.truncate_docs(train_config['maxsize_gpu'])
     logging.info('Truncated %d/%d documents.' % (truncated, len(training_set)))
 
+    loss_fn = MentionRankingLoss(model, train_config['error_costs'], cuda=cuda)
+
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
         train_loss_reg = 0.0
@@ -336,57 +393,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
             opt.zero_grad()
 
-            if cuda:
-                phi_a = Variable(training_set[idx].anaphoricity_features.long().pin_memory(), requires_grad=False).\
-                    cuda(async=True)
-                phi_p = Variable(training_set[idx].pairwise_features.long().pin_memory(), requires_grad=False).\
-                    cuda(async=True)
-            else:
-                phi_a = Variable(training_set[idx].anaphoricity_features.long(), requires_grad=False)
-                phi_p = Variable(training_set[idx].pairwise_features.long(), requires_grad=False)
-
-            # First do the full computation without gradients
-            phi_a.volatile = True
-            phi_p.volatile = True
-            all_eps_scores, all_ana_scores = to_cpu(model(phi_a, phi_p))
-            solution_mask = training_set[idx].solution_mask
-            best_correct_idx, highest_scoring_idx, cost_values =\
-                loss_fn.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
-
-            # Then turn on gradients and run on loss-contributing elements only
-            misclassified = torch.gt(cost_values, 0.0)
-            misclassified_idx = misclassified.nonzero()[:, 0]
-            nmisclassified = misclassified_idx.size()[0]
-            if nmisclassified == 0:
-                # no misclassified instances
-                continue
-
-            # Flag epsilons
-            cand_idx = torch.stack([best_correct_idx, highest_scoring_idx], dim=1)
-            example_no = torch.arange(0, training_set[idx].nmentions).long().unsqueeze(1).expand_as(cand_idx)
-            is_epsilon = torch.eq(cand_idx, example_no)
-            sub_is_epsilon = is_epsilon[misclassified_idx]
-            cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
-            sub_cand_mask = cand_mask[misclassified_idx]
-            example_offsets = torch.cumsum(torch.cat([torch.zeros(1, 2).long(),
-                                                      example_no[:(training_set[idx].nmentions - 1), :]]), 0)
-            cand_idx_in_doc = cand_idx + example_offsets
-            relevant_cands = cand_idx_in_doc[cand_mask]
-
-            phi_a.volatile = False
-            phi_p.volatile = False
-            sub_phi_a = phi_a[misclassified_idx, :]
-            sub_phi_p = phi_p[relevant_cands, :]
-            cand_subset = torch.sum(sub_cand_mask, dim=1)
-            sub_eps_scores, sub_ana_scores = to_cpu(model(sub_phi_a, sub_phi_p, cand_subset=cand_subset))
-
-            scores = Variable(torch.zeros(nmisclassified, 2))
-            scores[sub_cand_mask] = sub_ana_scores
-            needs_eps = torch.gt(torch.sum(sub_is_epsilon, dim=1), 0)
-            scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
-
-            var_cost_values = Variable(cost_values, requires_grad=False)
-            model_loss = torch.sum(var_cost_values * (1.0 + scores[:, 0] - scores[:, 1]))
+            model_loss = loss_fn.compute_loss(training_set[idx])
 
             reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
