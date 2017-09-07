@@ -189,8 +189,6 @@ class MentionRankingLoss:
 
         loss_values = cost_matrix * (1.0 + scores - best_correct.unsqueeze(1).expand_as(scores))
         loss_per_example, loss_idx = torch.max(loss_values, dim=1)
-        offsets = Variable(torch.cumsum(torch.arange(0, loss_idx.size()[0]).long(), 0), requires_grad=False)
-        loss_idx = loss_idx + offsets
 
         loss = torch.sum(loss_per_example)
         ncorrect = torch.sum(torch.eq(cost_values, 0.0))
