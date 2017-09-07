@@ -107,18 +107,16 @@ class MentionRankingLoss:
         self.cuda = cuda
 
     def compute_loss(self, doc):
+        t_phi_a = doc.anaphoricity_features.long()
+        t_phi_p = doc.pairwise_features.long()
+
         if self.cuda:
-            phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), requires_grad=False). \
-                cuda(async=True)
-            phi_p = Variable(doc.pairwise_features.long().pin_memory(), requires_grad=False). \
-                cuda(async=True)
-        else:
-            phi_a = Variable(doc.anaphoricity_features.long(), requires_grad=False)
-            phi_p = Variable(doc.pairwise_features.long(), requires_grad=False)
+            t_phi_a = t_phi_a.pin_memory().cuda(async=True)
+            t_phi_p = t_phi_p.pin_memory().cuda(async=True)
 
         # First do the full computation without gradients
-        phi_a.volatile = True
-        phi_p.volatile = True
+        phi_a = Variable(t_phi_a, volatile=True)
+        phi_p = Variable(t_phi_p, volatile=True)
         all_eps_scores, all_ana_scores = to_cpu(self.model(phi_a, phi_p))
         solution_mask = doc.solution_mask
         best_correct_idx, highest_scoring_idx, cost_values = \
@@ -144,8 +142,8 @@ class MentionRankingLoss:
         cand_idx_in_doc = cand_idx + example_offsets
         relevant_cands = cand_idx_in_doc[cand_mask]
 
-        phi_a.volatile = False
-        phi_p.volatile = False
+        phi_a = Variable(t_phi_a, volatile=False, requires_grad=False)
+        phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
         sub_phi_a = phi_a[misclassified_idx, :]
         sub_phi_p = phi_p[relevant_cands, :]
         cand_subset = torch.sum(sub_cand_mask, dim=1)
