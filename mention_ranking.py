@@ -365,10 +365,11 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             cand_idx = torch.stack([best_correct_idx, highest_scoring_idx], dim=1)
             example_no = torch.arange(0, training_set[idx].nmentions).long().unsqueeze(1).expand_as(cand_idx)
             is_epsilon = torch.eq(cand_idx, example_no)
+            sub_is_epsilon = is_epsilon[misclassified_idx]
             cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
             sub_cand_mask = cand_mask[misclassified_idx]
-            cand_idx.add_(torch.cumsum(example_no, 0) - 1)
-            relevant_cands = cand_idx[cand_mask]
+            cand_idx_in_doc = cand_idx + torch.cumsum(example_no, 0) - 1
+            relevant_cands = cand_idx_in_doc[cand_mask]
 
             phi_a.volatile = False
             phi_p.volatile = False
@@ -379,8 +380,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
             scores = Variable(torch.zeros(nmisclassified, 2))
             scores[sub_cand_mask] = sub_ana_scores
-            needs_eps = torch.gt(torch.sum(is_epsilon, dim=1), 0)
-            scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps]
+            needs_eps = torch.gt(torch.sum(sub_is_epsilon, dim=1), 0)
+            scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
 
             var_cost_values = Variable(cost_values, requires_grad=False)
             model_loss = torch.sum(var_cost_values * (1.0 + scores[:, 0] - scores[:, 1]))
@@ -470,8 +471,8 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
 
 def load_net_config(file):
     net_config = {
-        'ha_size': 128,
-        'hp_size': 700,
+        'ha_size': 10,  # 128,
+        'hp_size': 10,  # 700,
         'g2_size': None
     }
 
