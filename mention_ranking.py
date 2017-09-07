@@ -398,8 +398,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
 
-            train_loss_unreg += model_loss.data[0] / phi_a.size()[0]
-            train_loss_reg += loss.data[0] / phi_a.size()[0]
+            train_loss_unreg += model_loss.data[0] / training_set[idx].nmentions
+            train_loss_reg += loss.data[0] / training_set[idx].nmentions
 
             loss.backward()
             opt.step()
