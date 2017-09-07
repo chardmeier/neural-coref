@@ -368,7 +368,9 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
             sub_is_epsilon = is_epsilon[misclassified_idx]
             cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
             sub_cand_mask = cand_mask[misclassified_idx]
-            cand_idx_in_doc = cand_idx + torch.cumsum(example_no, 0) - 1
+            example_offsets = torch.cumsum(torch.cat([torch.zeros(1, 2).long(),
+                                                      example_no[:(training_set[idx].nmentions - 1), :]]), 0)
+            cand_idx_in_doc = cand_idx + example_offsets
             relevant_cands = cand_idx_in_doc[cand_mask]
 
             phi_a.volatile = False
