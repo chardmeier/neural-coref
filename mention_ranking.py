@@ -167,11 +167,11 @@ class MentionRankingLoss:
 
         return model_loss
 
-    def compute_dev_scores(self, doc):
+    def compute_dev_scores(self, doc, maxsize_gpu=None):
         t_phi_a = doc.anaphoricity_features.long()
         t_phi_p = doc.pairwise_features.long()
 
-        if self.cuda:
+        if self.cuda and (maxsize_gpu is None or doc.nmentions <= maxsize_gpu):
             t_phi_a = t_phi_a.pin_memory().cuda(async=True)
             t_phi_p = t_phi_p.pin_memory().cuda(async=True)
 
@@ -459,7 +459,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            loss, ncorrect = loss_fn.compute_dev_scores(doc)
+            loss, ncorrect = loss_fn.compute_dev_scores(doc, maxsize_gpu=train_config['maxsize_gpu'])
             dev_loss += loss
             dev_correct += ncorrect
             dev_total += doc.nmentions
