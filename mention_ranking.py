@@ -473,8 +473,8 @@ def predict(model, test_set, cuda=False, maxsize_gpu=None):
 
 def load_net_config(file):
     net_config = {
-        'ha_size': 10,  # 128,
-        'hp_size': 10,  # 700,
+        'ha_size': 128,
+        'hp_size': 700,
         'g2_size': None
     }
 
