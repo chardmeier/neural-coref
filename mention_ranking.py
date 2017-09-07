@@ -137,16 +137,21 @@ class MentionRankingLoss:
         sub_is_epsilon = is_epsilon[misclassified_idx]
         cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
         sub_cand_mask = cand_mask[misclassified_idx]
+        cand_subset = torch.sum(sub_cand_mask, dim=1)
         example_offsets = torch.cumsum(torch.cat([torch.zeros(1, 2).long(),
                                                   example_no[:(doc.nmentions - 1), :]]), 0)
         cand_idx_in_doc = cand_idx + example_offsets
         relevant_cands = cand_idx_in_doc[cand_mask]
 
+        if self.cuda:
+            misclassified_idx = misclassified_idx.cuda()
+            relevant_cands = relevant_cands.cuda()
+            cand_subset = cand_subset.cuda()
+
         phi_a = Variable(t_phi_a, volatile=False, requires_grad=False)
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
-        sub_phi_a = phi_a[misclassified_idx, :]
-        sub_phi_p = phi_p[relevant_cands, :]
-        cand_subset = torch.sum(sub_cand_mask, dim=1)
+        sub_phi_a = torch.index_select(phi_a, 0, misclassified_idx)
+        sub_phi_p = torch.index_select(phi_p, 0, relevant_cands)
         sub_eps_scores, sub_ana_scores = to_cpu(self.model(sub_phi_a, sub_phi_p, cand_subset=cand_subset))
 
         scores = Variable(torch.zeros(nmisclassified, 2))
