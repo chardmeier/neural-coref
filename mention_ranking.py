@@ -174,11 +174,13 @@ class MentionRankingLoss:
         if self.cuda and (maxsize_gpu is None or doc.nmentions <= maxsize_gpu):
             t_phi_a = t_phi_a.pin_memory().cuda(async=True)
             t_phi_p = t_phi_p.pin_memory().cuda(async=True)
+        elif self.cuda:
+            model = copy.deepcopy(self.model).cpu()
 
         # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, all_ana_scores = to_cpu(self.model(phi_a, phi_p))
+        all_eps_scores, all_ana_scores = to_cpu(model(phi_a, phi_p))
         solution_mask = doc.solution_mask
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
@@ -220,6 +222,7 @@ class MentionRankingLoss:
             'best_correct_idx': best_correct_idx,
             'highest_scoring': highest_scoring,
             'highest_scoring_idx': highest_scoring_idx,
+            'cost_matrix': cost_matrix,
             'cost_values': cost_values
         }
 
