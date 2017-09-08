@@ -164,7 +164,7 @@ class MentionRankingLoss:
             scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
 
         var_cost_values = Variable(cost_values, requires_grad=False)
-        model_loss = torch.sum(var_cost_values * (1.0 - scores[:, 0] + scores[:, 1]))
+        model_loss = torch.sum(var_cost_values[misclassified_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1]))
 
         logging.debug('%g = %g' % (model_loss.data[0], margin_info['loss']))
         return model_loss
