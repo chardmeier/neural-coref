@@ -171,6 +171,7 @@ class MentionRankingLoss:
         t_phi_a = doc.anaphoricity_features.long()
         t_phi_p = doc.pairwise_features.long()
 
+        model = self.model
         if self.cuda and (maxsize_gpu is None or doc.nmentions <= maxsize_gpu):
             t_phi_a = t_phi_a.pin_memory().cuda(async=True)
             t_phi_p = t_phi_p.pin_memory().cuda(async=True)
@@ -425,6 +426,10 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         for i, idx in enumerate(numpy.random.permutation(epoch_size)):
             if (i + 1) % dot_interval == 0:
                 print('.', end='', flush=True)
+
+            if training_set[idx].nmentions == 1:
+                logging.info('Skipping document with only one mention.')
+                continue
 
             opt.zero_grad()
 
