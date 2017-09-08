@@ -168,7 +168,7 @@ class MentionRankingLoss:
         var_cost_values = Variable(cost_values, requires_grad=False)
         model_loss = torch.sum(var_cost_values[loss_contributing_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1]))
 
-        assert model_loss.data[0] - margin_info['loss'] < 1e-5
+        assert abs(model_loss.data[0] - margin_info['loss']) < 1e-5
 
         return model_loss
 
