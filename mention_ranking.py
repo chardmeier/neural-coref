@@ -118,6 +118,25 @@ class MentionRankingLoss(torch.nn.Module):
         return loss
 
 
+class AntecedentRankingPretrainingLoss(torch.nn.Module):
+    def forward(self, scores, solution_mask):
+        # we can't use infinity here because otherwise multiplication by 0 is NaN
+        minimum_score = scores.min()
+        solution_scores = solution_mask * scores + (1.0 - solution_mask) * minimum_score.expand_as(scores)
+        best_correct = solution_scores.max(dim=1)[0]
+
+        # Pretraining loss penalty:
+        # 0 for correct predictions and for errors involving non-anaphoric mentions,
+        # 1 for incorrectly linked anaphoric mentions
+        cost_matrix = torch.tril(1.0 - solution_mask, -1)
+        non_anaphoric = torch.diag(solution_mask)
+        cost_matrix[non_anaphoric, :] = 0.0
+
+        loss = torch.sum(cost_matrix * (1.0 + scores - best_correct.expand_as(scores)))
+
+        return loss
+
+
 class AntecedentRankingPretrainingModel(torch.nn.Module):
     def __init__(self, phi_p_size, hp_size):
         super(AntecedentRankingPretrainingModel, self).__init__()
