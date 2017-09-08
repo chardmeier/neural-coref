@@ -8,11 +8,16 @@ import torch
 from torch.autograd import Variable
 
 
-def to_cpu(tensor):
-    if tensor.is_cuda:
-        return tensor.cpu()
+def to_cpu(inp):
+    if isinstance(inp, tuple):
+        return tuple(to_cpu(tensor) for tensor in inp)
+    elif isinstance(inp, list):
+        return list(to_cpu(tensor) for tensor in inp)
     else:
-        return tensor
+        if inp.is_cuda:
+            return inp.cpu()
+        else:
+            return inp
 
 
 # from https://stackoverflow.com/a/3233356
