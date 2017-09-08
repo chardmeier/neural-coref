@@ -124,22 +124,23 @@ class MentionRankingLoss:
         best_correct_idx = margin_info['best_correct_idx']
         highest_scoring_idx = margin_info['highest_scoring_idx']
         cost_values = margin_info['cost_values']
+        loss_per_example = margin_info['loss_per_example']
 
         # Then turn on gradients and run on loss-contributing elements only
-        misclassified = torch.gt(cost_values, 0.0)
-        if torch.sum(misclassified) == 0:
+        loss_contributing = torch.gt(loss_per_example, 0.0).unsqueeze(1)
+        if torch.sum(loss_contributing) == 0:
             # no misclassified instances
             return Variable(torch.zeros(1), requires_grad=False)
-        misclassified_idx = misclassified.nonzero()[:, 0]
-        nmisclassified = misclassified_idx.size()[0]
+        loss_contributing_idx = loss_contributing.nonzero()[:, 0]
+        n_loss_contributing = loss_contributing_idx.size()[0]
 
         # Flag epsilons
         cand_idx = torch.stack([best_correct_idx, highest_scoring_idx], dim=1)
         example_no = torch.arange(0, doc.nmentions).long().unsqueeze(1).expand_as(cand_idx)
         is_epsilon = torch.eq(cand_idx, example_no)
-        sub_is_epsilon = is_epsilon[misclassified_idx]
-        cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
-        sub_cand_mask = cand_mask[misclassified_idx]
+        sub_is_epsilon = is_epsilon[loss_contributing_idx]
+        cand_mask = (1 - is_epsilon) * loss_contributing.expand_as(is_epsilon)
+        sub_cand_mask = cand_mask[loss_contributing_idx]
         cand_subset = Variable(example_no[:sub_cand_mask.size()[0], :].masked_select(sub_cand_mask))
         example_offsets = torch.cumsum(torch.cat([torch.zeros(1, 2).long(),
                                                   example_no[:(doc.nmentions - 1), :]]), 0)
@@ -147,24 +148,25 @@ class MentionRankingLoss:
         relevant_cands = cand_idx_in_doc[cand_mask]
 
         if self.cuda:
-            misclassified_idx = misclassified_idx.cuda()
+            loss_contributing_idx = loss_contributing_idx.cuda()
             relevant_cands = relevant_cands.cuda()
             cand_subset = cand_subset.cuda()
 
         phi_a = Variable(t_phi_a, volatile=False, requires_grad=False)
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
-        sub_phi_a = torch.index_select(phi_a, 0, misclassified_idx)
+        sub_phi_a = torch.index_select(phi_a, 0, loss_contributing_idx)
         sub_phi_p = torch.index_select(phi_p, 0, relevant_cands)
         sub_eps_scores, sub_ana_scores = to_cpu(self.model(sub_phi_a, sub_phi_p, cand_subset=cand_subset))
 
-        scores = Variable(torch.zeros(nmisclassified, 2))
+        scores = Variable(torch.zeros(n_loss_contributing, 2))
         scores[sub_cand_mask] = sub_ana_scores
         needs_eps = torch.gt(torch.sum(sub_is_epsilon, dim=1), 0)
         if torch.sum(needs_eps) > 0:
-            scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
+            eps_idx = Variable(example_no[:sub_cand_mask.size()[0], :].masked_select(1 - sub_cand_mask))
+            scores[1 - sub_cand_mask] = sub_eps_scores[eps_idx]
 
         var_cost_values = Variable(cost_values, requires_grad=False)
-        model_loss = torch.sum(var_cost_values[misclassified_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1]))
+        model_loss = torch.sum(var_cost_values[loss_contributing_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1]))
 
         logging.debug('%g = %g' % (model_loss.data[0], margin_info['loss']))
         return model_loss
@@ -232,7 +234,8 @@ class MentionRankingLoss:
             'highest_scoring_idx': highest_scoring_idx,
             'cost_matrix': cost_matrix,
             'cost_values': cost_values,
-            'loss': loss
+            'loss': loss,
+            'loss_per_example': loss_per_example
         }
 
 
