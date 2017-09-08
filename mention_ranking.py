@@ -112,12 +112,12 @@ class MentionRankingLoss:
     def compute_loss(self, doc):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
         t_phi_p = self.factory.to_device(doc.pairwise_features.long())
+        solution_mask = self.factory.to_device(doc.solution_mask)
 
         # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
         all_eps_scores, all_ana_scores = self.model(phi_a, phi_p)
-        solution_mask = doc.solution_mask
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         best_correct_idx = margin_info['best_correct_idx']
