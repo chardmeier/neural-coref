@@ -1,11 +1,79 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
 import collections
+import copy
 import math
+import numbers
 import numpy
 import torch
 
 from torch.autograd import Variable
+
+
+class CPUFactory:
+    @staticmethod
+    def to_device(x):
+        return x
+
+    @staticmethod
+    def zeros(*args):
+        return torch.zeros(*args)
+
+    @staticmethod
+    def long_arange(start, end, step=1):
+        return torch.arange(start, end, step).long()
+
+    @staticmethod
+    def long_zeros(*args):
+        return torch.LongTensor(*args).zero_()
+
+    @staticmethod
+    def get_single(t):
+        if isinstance(t, numbers.Number):
+            return t
+
+        assert t.numel() == 1
+        if isinstance(t, Variable):
+            return t.data[0]
+        else:
+            return t[0]
+
+    @staticmethod
+    def cpu_model(model):
+        return model
+
+
+class CudaFactory:
+    @staticmethod
+    def to_device(x):
+        return x.pin_memory().cuda(async=True)
+
+    @staticmethod
+    def zeros(*args):
+        return torch.cuda.FloatTensor(*args).zero_()
+
+    @staticmethod
+    def long_arange(start, end, step=None):
+        return torch.arange(start, end, step).long().pin_memory().cuda(async=True)
+
+    @staticmethod
+    def long_zeros(*args):
+        return torch.cuda.LongTensor(*args).zero_()
+
+    @staticmethod
+    def get_single(t):
+        if isinstance(t, numbers.Number):
+            return t
+
+        assert t.numel() == 1
+        if isinstance(t, Variable):
+            return t.cpu().data[0]
+        else:
+            return t.cpu()[0]
+
+    @staticmethod
+    def cpu_model(model):
+        return copy.deepcopy(model).cpu()
 
 
 def to_cpu(inp):
