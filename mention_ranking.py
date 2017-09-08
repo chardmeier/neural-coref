@@ -69,12 +69,12 @@ class MentionRankingModel(torch.nn.Module):
             h_combined = torch.autograd.Variable(torch.FloatTensor(ncands, self.ha_size + self.hp_size))
 
         if cand_subset is None:
-            cand_subset = range(1, nmentions)
-
-        i = 0
-        for j in cand_subset:
-            h_combined[i:(i + j), :self.ha_size] = h_a[j, :].expand(j, self.ha_size)
-            i += j
+            i = 0
+            for j in range(1, nmentions):
+                h_combined[i:(i + j), :self.ha_size] = h_a[j, :].expand(j, self.ha_size)
+                i += j
+        else:
+            h_combined[:, :self.ha_size] = torch.index_select(h_a, 0, cand_subset)
 
         h_combined[:, self.ha_size:] = self.hp_model(all_phi_p)
         ana_scores = self.ana_scoring_model(h_combined)
@@ -127,11 +127,11 @@ class MentionRankingLoss:
 
         # Then turn on gradients and run on loss-contributing elements only
         misclassified = torch.gt(cost_values, 0.0)
-        misclassified_idx = misclassified.nonzero()[:, 0]
-        nmisclassified = misclassified_idx.size()[0]
-        if nmisclassified == 0:
+        if torch.sum(misclassified) == 0:
             # no misclassified instances
             return Variable(torch.zeros(1), requires_grad=False)
+        misclassified_idx = misclassified.nonzero()[:, 0]
+        nmisclassified = misclassified_idx.size()[0]
 
         # Flag epsilons
         cand_idx = torch.stack([best_correct_idx, highest_scoring_idx], dim=1)
@@ -140,7 +140,7 @@ class MentionRankingLoss:
         sub_is_epsilon = is_epsilon[misclassified_idx]
         cand_mask = (1 - is_epsilon) * misclassified.expand_as(is_epsilon)
         sub_cand_mask = cand_mask[misclassified_idx]
-        cand_subset = torch.sum(sub_cand_mask, dim=1)
+        cand_subset = Variable(example_no[:sub_cand_mask.size()[0], :].masked_select(sub_cand_mask))
         example_offsets = torch.cumsum(torch.cat([torch.zeros(1, 2).long(),
                                                   example_no[:(doc.nmentions - 1), :]]), 0)
         cand_idx_in_doc = cand_idx + example_offsets
@@ -160,11 +160,13 @@ class MentionRankingLoss:
         scores = Variable(torch.zeros(nmisclassified, 2))
         scores[sub_cand_mask] = sub_ana_scores
         needs_eps = torch.gt(torch.sum(sub_is_epsilon, dim=1), 0)
-        scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
+        if torch.sum(needs_eps) > 0:
+            scores[1 - sub_cand_mask] = sub_eps_scores[needs_eps.nonzero().squeeze()]
 
         var_cost_values = Variable(cost_values, requires_grad=False)
-        model_loss = torch.sum(var_cost_values * (1.0 + scores[:, 0] - scores[:, 1]))
+        model_loss = torch.sum(var_cost_values * (1.0 - scores[:, 0] + scores[:, 1]))
 
+        logging.debug('%g = %g' % (model_loss.data[0], margin_info['loss']))
         return model_loss
 
     def compute_dev_scores(self, doc, maxsize_gpu=None):
@@ -217,6 +219,11 @@ class MentionRankingLoss:
         cost_matrix = (1.0 - solution_mask) * potential_costs
         cost_values = torch.gather(cost_matrix, 1, highest_scoring_idx.unsqueeze(1))
 
+        loss_values = cost_matrix * (1.0 + scores - best_correct.unsqueeze(1).expand_as(scores))
+        loss_per_example, loss_idx = torch.max(loss_values, dim=1)
+
+        loss = torch.sum(loss_per_example)
+
         return {
             'scores': scores,
             'best_correct': best_correct,
@@ -224,7 +231,8 @@ class MentionRankingLoss:
             'highest_scoring': highest_scoring,
             'highest_scoring_idx': highest_scoring_idx,
             'cost_matrix': cost_matrix,
-            'cost_values': cost_values
+            'cost_values': cost_values,
+            'loss': loss
         }
 
 
