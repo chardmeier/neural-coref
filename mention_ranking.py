@@ -122,7 +122,7 @@ class MentionRankingLoss:
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         best_correct_idx = margin_info['best_correct_idx']
-        highest_scoring_idx = margin_info['highest_scoring_idx']
+        loss_idx = margin_info['loss_idx']
         cost_values = margin_info['cost_values']
         loss_per_example = margin_info['loss_per_example']
 
@@ -135,7 +135,7 @@ class MentionRankingLoss:
         n_loss_contributing = loss_contributing_idx.size()[0]
 
         # Flag epsilons
-        cand_idx = torch.stack([best_correct_idx, highest_scoring_idx], dim=1)
+        cand_idx = torch.stack([best_correct_idx, loss_idx], dim=1)
         example_no = torch.arange(0, doc.nmentions).long().unsqueeze(1).expand_as(cand_idx)
         is_epsilon = torch.eq(cand_idx, example_no)
         sub_is_epsilon = is_epsilon[loss_contributing_idx]
@@ -168,7 +168,8 @@ class MentionRankingLoss:
         var_cost_values = Variable(cost_values, requires_grad=False)
         model_loss = torch.sum(var_cost_values[loss_contributing_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1]))
 
-        logging.debug('%g = %g' % (model_loss.data[0], margin_info['loss']))
+        assert model_loss.data[0] - margin_info['loss'] < 1e-5
+
         return model_loss
 
     def compute_dev_scores(self, doc, maxsize_gpu=None):
@@ -219,11 +220,11 @@ class MentionRankingLoss:
         potential_costs = torch.tril(torch.mm(anaphoricity_selector, self.link_costs.expand(2, scores.size()[1])), -1)
         potential_costs[torch.eye(scores.size()[0]).byte()] = self.false_new_cost
         cost_matrix = (1.0 - solution_mask) * potential_costs
-        cost_values = torch.gather(cost_matrix, 1, highest_scoring_idx.unsqueeze(1))
 
         loss_values = cost_matrix * (1.0 + scores - best_correct.unsqueeze(1).expand_as(scores))
         loss_per_example, loss_idx = torch.max(loss_values, dim=1)
 
+        cost_values = torch.gather(cost_matrix, 1, loss_idx.unsqueeze(1))
         loss = torch.sum(loss_per_example)
 
         return {
@@ -235,6 +236,7 @@ class MentionRankingLoss:
             'cost_matrix': cost_matrix,
             'cost_values': cost_values,
             'loss': loss,
+            'loss_idx': loss_idx,
             'loss_per_example': loss_per_example
         }
 
