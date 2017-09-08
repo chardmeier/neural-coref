@@ -53,7 +53,7 @@ class CudaFactory:
         return torch.cuda.FloatTensor(*args).zero_()
 
     @staticmethod
-    def long_arange(start, end, step=None):
+    def long_arange(start, end, step=1):
         return torch.arange(start, end, step).long().pin_memory().cuda(async=True)
 
     @staticmethod
