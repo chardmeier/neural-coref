@@ -158,19 +158,13 @@ class MentionRankingLoss:
 
         return model_loss
 
-    def compute_dev_scores(self, doc, maxsize_gpu=None):
-        if maxsize_gpu and doc.nmentions > maxsize_gpu:
-            return self.cpu().compute_dev_scores(doc)
-
+    def compute_dev_scores(self, doc):
         t_phi_a = doc.anaphoricity_features.long()
         t_phi_p = doc.pairwise_features.long()
 
         model = self.model
-        if maxsize_gpu is None or doc.nmentions <= maxsize_gpu:
-            t_phi_a = self.factory.to_device(t_phi_a)
-            t_phi_p = self.factory.to_device(t_phi_p)
-        else:
-            model = self.factory.cpu_model(model)
+        t_phi_a = self.factory.to_device(t_phi_a)
+        t_phi_p = self.factory.to_device(t_phi_p)
 
         # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
@@ -486,10 +480,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         print(flush=True)
 
-        if cuda:
-            cpu_model = copy.deepcopy(model).cpu()
-        else:
-            cpu_model = model
+        cpu_loss_fn = loss_fn.cpu()
+        cpu_model = cpu_loss_fn.model
 
         if checkpoint:
             logging.info('Saving checkpoint...')
@@ -501,7 +493,13 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            loss, ncorrect = loss_fn.compute_dev_scores(doc, maxsize_gpu=train_config['maxsize_gpu'])
+            if doc.nmentions > train_config['maxsize_gpu']:
+                logging.debug('CPU: %d' % doc.nmentions)
+                loss, ncorrect = cpu_loss_fn.compute_dev_scores(doc)
+            else:
+                logging.debug('GPU: %d' % doc.nmentions)
+                loss, ncorrect = loss_fn.compute_dev_scores(doc)
+
             dev_loss += loss
             dev_correct += ncorrect
             dev_total += doc.nmentions
