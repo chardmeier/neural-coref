@@ -485,8 +485,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
     opt = torch.optim.Adagrad(params=opt_params)
 
-    training_set, truncated = training_set.truncate_docs(train_config['maxsize_gpu'])
-    logging.info('Truncated %d/%d documents.' % (truncated, len(training_set)))
+    # training_set, truncated = training_set.truncate_docs(train_config['maxsize_gpu'])
+    # logging.info('Truncated %d/%d documents.' % (truncated, len(training_set)))
 
     model.set_error_costs(train_config['error_costs'])
 
@@ -504,7 +504,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
             opt.zero_grad()
 
-            model_loss = model.compute_loss(training_set[idx], batchsize=20000)
+            model_loss = model.compute_loss(training_set[idx], batchsize=train_config['batchsize'])
 
             reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
@@ -533,7 +533,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            loss, ncorrect = model.compute_dev_scores(doc, batchsize=20000)
+            loss, ncorrect = model.compute_dev_scores(doc, batchsize=train_config['batchsize'])
 
             dev_loss += loss
             dev_correct += ncorrect
@@ -599,7 +599,7 @@ def load_train_config(file):
             'false_new': 1.2,
             'wrong_link': 1.0
         },
-        'maxsize_gpu': 230,
+        'batchsize': 30000,
         'ha_pretrain': None,
         'hp_pretrain': None
     }
