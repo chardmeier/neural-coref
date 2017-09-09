@@ -82,32 +82,16 @@ class MentionRankingModel(torch.nn.Module):
         return eps_scores, ana_scores
 
 
-def create_score_matrix(eps_scores, ana_scores):
-    nmentions = eps_scores.size()[0]
-
-    all_scores = torch.zeros(nmentions, nmentions)
-
-    # Put epsilon scores on the main diagonal
-    eps_idx = torch.eye(nmentions).byte()
-    all_scores[eps_idx] = to_cpu(eps_scores)
-
-    # Put anaphoric scores in the triangular part below the diagonal
-    ana_idx = torch.tril(torch.ones(nmentions, nmentions).byte(), -1)
-    all_scores[ana_idx] = to_cpu(ana_scores)
-
-    return all_scores
-
-
 class MentionRankingLoss:
     def __init__(self, model, costs, cuda=False):
         super(MentionRankingLoss, self).__init__()
         self.model = model
-        self.false_new_cost = costs['false_new']
-        self.link_costs = torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]])
         if cuda:
             self.factory = util.CudaFactory()
         else:
             self.factory = util.CPUFactory()
+        self.false_new_cost = costs['false_new']
+        self.link_costs = self.factory.to_device(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
 
     def compute_loss(self, doc):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
@@ -162,7 +146,7 @@ class MentionRankingLoss:
         sub_loss_per_example = var_cost_values[loss_contributing_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1])
         model_loss = to_cpu(torch.sum(sub_loss_per_example))
 
-        assert abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss'])) < 1e-5
+        assert abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss'])) < 1e-3
 
         return model_loss
 
@@ -198,7 +182,7 @@ class MentionRankingLoss:
         return loss, ncorrect
 
     def find_margin(self, eps_scores, ana_scores, solution_mask):
-        scores = create_score_matrix(eps_scores, ana_scores)
+        scores = self.create_score_matrix(eps_scores, ana_scores)
 
         # we can't use infinity here because otherwise multiplication by 0 is NaN
         minimum_score = scores.min()
@@ -212,7 +196,7 @@ class MentionRankingLoss:
         anaphoricity_selector = torch.stack([non_anaphoric, 1 - non_anaphoric], dim=1).float()
         # tril() suppresses cataphoric and self-references
         potential_costs = torch.tril(torch.mm(anaphoricity_selector, self.link_costs.expand(2, scores.size()[1])), -1)
-        potential_costs[torch.eye(scores.size()[0]).byte()] = self.false_new_cost
+        potential_costs[self.factory.byte_eye(scores.size()[0])] = self.false_new_cost
         cost_matrix = (1.0 - solution_mask) * potential_costs
 
         loss_values = cost_matrix * (1.0 + scores - best_correct.unsqueeze(1).expand_as(scores))
@@ -233,6 +217,21 @@ class MentionRankingLoss:
             'loss_idx': loss_idx,
             'loss_per_example': loss_per_example
         }
+
+    def create_score_matrix(self, eps_scores, ana_scores):
+        nmentions = eps_scores.size()[0]
+
+        all_scores = self.factory.zeros(nmentions, nmentions)
+
+        # Put epsilon scores on the main diagonal
+        eps_idx = self.factory.byte_eye(nmentions)
+        all_scores[eps_idx] = eps_scores
+
+        # Put anaphoric scores in the triangular part below the diagonal
+        ana_idx = torch.tril(self.factory.byte_ones(nmentions, nmentions).byte(), -1)
+        all_scores[ana_idx] = ana_scores
+
+        return all_scores
 
 
 class AntecedentRankingPretrainingLoss(torch.nn.Module):

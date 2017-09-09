@@ -20,6 +20,14 @@ class CPUFactory:
         return torch.zeros(*args)
 
     @staticmethod
+    def byte_ones(*args):
+        return torch.ones(*args).byte()
+
+    @staticmethod
+    def byte_eye(*args):
+        return torch.eye(*args).byte()
+
+    @staticmethod
     def long_arange(start, end, step=1):
         return torch.arange(start, end, step).long()
 
@@ -51,6 +59,14 @@ class CudaFactory:
     @staticmethod
     def zeros(*args):
         return torch.cuda.FloatTensor(*args).zero_()
+
+    @staticmethod
+    def byte_ones(*args):
+        return torch.cuda.ByteTensor(*args).zero_() + 1
+
+    @staticmethod
+    def byte_eye(*args):
+        return torch.eye(*args).byte().pin_memory().cuda(async=True)
 
     @staticmethod
     def long_arange(start, end, step=1):
