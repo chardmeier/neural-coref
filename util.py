@@ -11,6 +11,9 @@ from torch.autograd import Variable
 
 
 class CPUFactory:
+    def __init__(self):
+        self.is_cuda = False
+
     @staticmethod
     def to_device(x):
         return x
@@ -52,6 +55,9 @@ class CPUFactory:
 
 
 class CudaFactory:
+    def __init__(self):
+        self.is_cuda = True
+
     @staticmethod
     def to_device(x):
         return x.pin_memory().cuda(async=True)
