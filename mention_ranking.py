@@ -33,15 +33,32 @@ class HModel(torch.nn.Module):
         return out
 
 
-class MentionRankingModel(torch.nn.Module):
-    def __init__(self, phi_a_size, phi_p_size, ha_size, hp_size, hidden_size=None, cuda=False):
-        super(MentionRankingModel, self).__init__()
+class EpsilonScoringModel(torch.nn.Module):
+    def __init__(self, phi_a_size, ha_size, cuda=False):
+        super(EpsilonScoringModel, self).__init__()
+
+        self.with_cuda = cuda
+
+        self.ha_size = ha_size
+        self.ha_model = HModel(phi_a_size, ha_size)
+
+        self.eps_scoring_model = torch.nn.Linear(ha_size, 1)
+
+    def forward(self, phi_a):
+        h_a = self.ha_model(phi_a)
+        eps_scores = self.eps_scoring_model(h_a)
+
+        return eps_scores, h_a
+
+
+class AntecedentScoringModel(torch.nn.Module):
+    def __init__(self, phi_p_size, hp_size, ha_size, hidden_size=None, cuda=False):
+        super(AntecedentScoringModel, self).__init__()
 
         self.with_cuda = cuda
 
         self.ha_size = ha_size
         self.hp_size = hp_size
-        self.ha_model = HModel(phi_a_size, ha_size)
         self.hp_model = HModel(phi_p_size, hp_size)
 
         if hidden_size:
@@ -53,20 +70,16 @@ class MentionRankingModel(torch.nn.Module):
         else:
             self.ana_scoring_model = torch.nn.Linear(ha_size + hp_size, 1)
 
-        self.eps_scoring_model = torch.nn.Linear(ha_size, 1)
+        if cuda:
+            self.factory = util.CudaFactory()
+        else:
+            self.factory = util.CPUFactory()
 
-    def forward(self, phi_a, all_phi_p, cand_subset=None):
-        nmentions = phi_a.size()[0]
+    def forward(self, h_a, all_phi_p, cand_subset=None):
+        nmentions = h_a.size()[0]
         ncands = all_phi_p.size()[0]
 
-        h_a = self.ha_model(phi_a)
-
-        eps_scores = self.eps_scoring_model(h_a)
-
-        if phi_a.is_cuda and all_phi_p.is_cuda:
-            h_combined = torch.autograd.Variable(torch.cuda.FloatTensor(ncands, self.ha_size + self.hp_size))
-        else:
-            h_combined = torch.autograd.Variable(torch.FloatTensor(ncands, self.ha_size + self.hp_size))
+        h_combined = Variable(self.factory.float_tensor(ncands, self.ha_size + self.hp_size))
 
         if cand_subset is None:
             i = 0
@@ -79,26 +92,28 @@ class MentionRankingModel(torch.nn.Module):
         h_combined[:, self.ha_size:] = self.hp_model(all_phi_p)
         ana_scores = self.ana_scoring_model(h_combined)
 
-        return eps_scores, ana_scores
+        return ana_scores
 
 
-class MentionRankingLoss:
-    def __init__(self, model, costs, cuda=False):
-        super(MentionRankingLoss, self).__init__()
-        self.model = model
+class MentionRankingModel(torch.nn.Module):
+    def __init__(self, eps_model, ana_model, cuda=False):
+        super(MentionRankingModel, self).__init__()
+        self.eps_model = eps_model
+        self.ana_model = ana_model
         if cuda:
             self.factory = util.CudaFactory()
         else:
             self.factory = util.CPUFactory()
-        self.cost_dict = costs
+        self.false_new_cost = None
+        self.link_costs = None
+
+    def forward(self):
+        # call one of the more specific methods instead
+        raise NotImplementedError
+
+    def set_error_costs(self, costs):
         self.false_new_cost = costs['false_new']
         self.link_costs = self.factory.to_device(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
-
-    def cpu(self):
-        if not self.factory.is_cuda:
-            return self
-
-        return MentionRankingLoss(self.factory.cpu_model(self.model), self.cost_dict, cuda=False)
 
     def compute_loss(self, doc):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
@@ -108,7 +123,8 @@ class MentionRankingLoss:
         # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, all_ana_scores = self.model(phi_a, phi_p)
+        all_eps_scores, h_a = self.eps_model(phi_a)
+        all_ana_scores = self.ana_model(h_a, phi_p)
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         best_correct_idx = margin_info['best_correct_idx']
@@ -140,7 +156,8 @@ class MentionRankingLoss:
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
         sub_phi_a = torch.index_select(phi_a, 0, loss_contributing_idx)
         sub_phi_p = torch.index_select(phi_p, 0, relevant_cands)
-        sub_eps_scores, sub_ana_scores = self.model(sub_phi_a, sub_phi_p, cand_subset=cand_subset)
+        sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a)
+        sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, cand_subset=cand_subset)
 
         scores = Variable(self.factory.zeros(n_loss_contributing, 2))
         scores[sub_cand_mask] = sub_ana_scores
@@ -159,17 +176,13 @@ class MentionRankingLoss:
         return model_loss
 
     def compute_dev_scores(self, doc):
-        t_phi_a = doc.anaphoricity_features.long()
-        t_phi_p = doc.pairwise_features.long()
+        t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
+        t_phi_p = self.factory.to_device(doc.pairwise_features.long())
 
-        model = self.model
-        t_phi_a = self.factory.to_device(t_phi_a)
-        t_phi_p = self.factory.to_device(t_phi_p)
-
-        # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, all_ana_scores = model(phi_a, phi_p)
+        all_eps_scores, h_a = self.eps_model(phi_a)
+        all_ana_scores = self.ana_model(h_a, phi_p)
         solution_mask = self.factory.to_device(doc.solution_mask)
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
@@ -447,7 +460,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     training_set, truncated = training_set.truncate_docs(train_config['maxsize_gpu'])
     logging.info('Truncated %d/%d documents.' % (truncated, len(training_set)))
 
-    loss_fn = MentionRankingLoss(model, train_config['error_costs'], cuda=cuda)
+    model.set_error_costs(train_config['error_costs'])
 
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
@@ -463,7 +476,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
             opt.zero_grad()
 
-            model_loss = loss_fn.compute_loss(training_set[idx])
+            model_loss = model.compute_loss(training_set[idx])
 
             reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
@@ -480,8 +493,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         print(flush=True)
 
-        cpu_loss_fn = loss_fn.cpu()
-        cpu_model = cpu_loss_fn.model
+        cpu_model = model.cpu()
 
         if checkpoint:
             logging.info('Saving checkpoint...')
@@ -495,10 +507,10 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         for doc in dev_set:
             if doc.nmentions > train_config['maxsize_gpu']:
                 logging.debug('CPU: %d' % doc.nmentions)
-                loss, ncorrect = cpu_loss_fn.compute_dev_scores(doc)
+                loss, ncorrect = cpu_model.compute_dev_scores(doc)
             else:
                 logging.debug('GPU: %d' % doc.nmentions)
-                loss, ncorrect = loss_fn.compute_dev_scores(doc)
+                loss, ncorrect = model.compute_dev_scores(doc)
 
             dev_loss += loss
             dev_correct += ncorrect
@@ -621,10 +633,13 @@ def create_model(args, cuda):
     with h5py.File(h5_file, 'r') as h5:
         anaphoricity_fsize, pairwise_fsize = features.vocabulary_sizes_from_hdf5(h5)
 
-    model = MentionRankingModel(anaphoricity_fsize, pairwise_fsize,
-                                net_config['ha_size'], net_config['hp_size'],
-                                hidden_size=net_config['g2_size'],
-                                cuda=cuda)
+    eps_model = EpsilonScoringModel(anaphoricity_fsize, net_config['ha_size'], cuda=cuda)
+    ana_model = AntecedentScoringModel(pairwise_fsize,
+                                       net_config['hp_size'], net_config['ha_size'],
+                                       hidden_size=net_config['g2_size'],
+                                       cuda=cuda)
+
+    model = MentionRankingModel(eps_model, ana_model)
 
     return model
 

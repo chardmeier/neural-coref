@@ -23,6 +23,10 @@ class CPUFactory:
         return torch.zeros(*args)
 
     @staticmethod
+    def float_tensor(*args):
+        return torch.FloatTensor(*args)
+
+    @staticmethod
     def byte_ones(*args):
         return torch.ones(*args).byte()
 
@@ -65,6 +69,10 @@ class CudaFactory:
     @staticmethod
     def zeros(*args):
         return torch.cuda.FloatTensor(*args).zero_()
+
+    @staticmethod
+    def float_tensor(*args):
+        return torch.cuda.FloatTensor(*args)
 
     @staticmethod
     def byte_ones(*args):
