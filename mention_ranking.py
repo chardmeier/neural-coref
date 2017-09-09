@@ -198,8 +198,9 @@ class MentionRankingModel(torch.nn.Module):
         sub_loss_per_example = var_cost_values[loss_contributing_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1])
         model_loss = to_cpu(torch.sum(sub_loss_per_example))
 
-        #TODO reenable and debug
-        #assert abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss'])) < 1e-3
+        score_diff = abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss']))
+        if score_diff > 1e-4:
+            logging.warning('Unexpected score difference: %g' % score_diff)
 
         return model_loss
 
