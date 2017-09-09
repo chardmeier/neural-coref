@@ -143,7 +143,7 @@ class MentionRankingModel(torch.nn.Module):
         self.false_new_cost = costs['false_new']
         self.link_costs = self.factory.to_device(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
 
-    def compute_loss(self, doc):
+    def compute_loss(self, doc, batchsize=None):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
         t_phi_p = self.factory.to_device(doc.pairwise_features.long())
         solution_mask = self.factory.to_device(doc.solution_mask)
@@ -151,8 +151,8 @@ class MentionRankingModel(torch.nn.Module):
         # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, h_a = self.eps_model(phi_a)
-        all_ana_scores = self.ana_model(h_a, phi_p)
+        all_eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
+        all_ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         best_correct_idx = margin_info['best_correct_idx']
@@ -184,8 +184,8 @@ class MentionRankingModel(torch.nn.Module):
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
         sub_phi_a = torch.index_select(phi_a, 0, loss_contributing_idx)
         sub_phi_p = torch.index_select(phi_p, 0, relevant_cands)
-        sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a)
-        sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, cand_subset=cand_subset)
+        sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a, batchsize=batchsize)
+        sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, cand_subset=cand_subset, batchsize=batchsize)
 
         scores = Variable(self.factory.zeros(n_loss_contributing, 2))
         scores[sub_cand_mask] = sub_ana_scores
@@ -203,14 +203,14 @@ class MentionRankingModel(torch.nn.Module):
 
         return model_loss
 
-    def compute_dev_scores(self, doc):
+    def compute_dev_scores(self, doc, batchsize=None):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
         t_phi_p = self.factory.to_device(doc.pairwise_features.long())
 
         phi_a = Variable(t_phi_a, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, h_a = self.eps_model(phi_a)
-        all_ana_scores = self.ana_model(h_a, phi_p)
+        all_eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
+        all_ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
         solution_mask = self.factory.to_device(doc.solution_mask)
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
@@ -504,7 +504,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
             opt.zero_grad()
 
-            model_loss = model.compute_loss(training_set[idx])
+            model_loss = model.compute_loss(training_set[idx], batchsize=20000)
 
             reg_loss = to_cpu(sum(p.abs().sum() for p in model.parameters()))
             loss = model_loss + train_config['l1reg'] * reg_loss
@@ -521,7 +521,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         print(flush=True)
 
-        cpu_model = model.cpu()
+        cpu_model = copy.deepcopy(model).cpu()
 
         if checkpoint:
             logging.info('Saving checkpoint...')
@@ -533,12 +533,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         dev_correct = 0
         dev_total = 0
         for doc in dev_set:
-            if doc.nmentions > train_config['maxsize_gpu']:
-                logging.debug('CPU: %d' % doc.nmentions)
-                loss, ncorrect = cpu_model.compute_dev_scores(doc)
-            else:
-                logging.debug('GPU: %d' % doc.nmentions)
-                loss, ncorrect = model.compute_dev_scores(doc)
+            loss, ncorrect = model.compute_dev_scores(doc, batchsize=20000)
 
             dev_loss += loss
             dev_correct += ncorrect
@@ -667,7 +662,7 @@ def create_model(args, cuda):
                                        hidden_size=net_config['g2_size'],
                                        cuda=cuda)
 
-    model = MentionRankingModel(eps_model, ana_model)
+    model = MentionRankingModel(eps_model, ana_model, cuda=cuda)
 
     return model
 
