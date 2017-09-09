@@ -39,6 +39,10 @@ class CPUFactory:
         return torch.arange(start, end, step).long()
 
     @staticmethod
+    def long_tensor(*args):
+        return torch.LongTensor(*args)
+
+    @staticmethod
     def long_zeros(*args):
         return torch.LongTensor(*args).zero_()
 
@@ -85,6 +89,10 @@ class CudaFactory:
     @staticmethod
     def long_arange(start, end, step=1):
         return torch.arange(start, end, step).long().pin_memory().cuda(async=True)
+
+    @staticmethod
+    def long_tensor(*args):
+        return torch.cuda.LongTensor(*args)
 
     @staticmethod
     def long_zeros(*args):

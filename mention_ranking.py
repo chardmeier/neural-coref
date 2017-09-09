@@ -37,16 +37,32 @@ class EpsilonScoringModel(torch.nn.Module):
     def __init__(self, phi_a_size, ha_size, cuda=False):
         super(EpsilonScoringModel, self).__init__()
 
-        self.with_cuda = cuda
-
         self.ha_size = ha_size
         self.ha_model = HModel(phi_a_size, ha_size)
 
         self.eps_scoring_model = torch.nn.Linear(ha_size, 1)
 
-    def forward(self, phi_a):
-        h_a = self.ha_model(phi_a)
-        eps_scores = self.eps_scoring_model(h_a)
+        if cuda:
+            self.factory = util.CudaFactory()
+        else:
+            self.factory = util.CPUFactory()
+
+    def forward(self, phi_a, batchsize=None):
+        nmentions = phi_a.size()[0]
+
+        if batchsize is None:
+            batchsize = nmentions
+
+        eps_scores = Variable(self.factory.float_tensor(nmentions))
+        h_a = Variable(self.factory.float_tensor(nmentions, self.ha_size))
+
+        for batch_start in range(0, nmentions, batchsize):
+            this_batchsize = min(batchsize, nmentions - batch_start)
+            this_phi_a = phi_a[batch_start:(batch_start + this_batchsize)]
+
+            this_h_a = self.ha_model(this_phi_a)
+            h_a[batch_start:(batch_start + this_batchsize), :] = this_h_a
+            eps_scores[batch_start:(batch_start + this_batchsize)] = self.eps_scoring_model(this_h_a)
 
         return eps_scores, h_a
 
@@ -75,22 +91,34 @@ class AntecedentScoringModel(torch.nn.Module):
         else:
             self.factory = util.CPUFactory()
 
-    def forward(self, h_a, all_phi_p, cand_subset=None):
+    def forward(self, h_a, all_phi_p, cand_subset=None, batchsize=None):
         nmentions = h_a.size()[0]
         ncands = all_phi_p.size()[0]
 
-        h_combined = Variable(self.factory.float_tensor(ncands, self.ha_size + self.hp_size))
+        if batchsize is None:
+            batchsize = ncands
 
         if cand_subset is None:
+            cand_subset = self.factory.long_tensor(ncands)
             i = 0
             for j in range(1, nmentions):
-                h_combined[i:(i + j), :self.ha_size] = h_a[j, :].expand(j, self.ha_size)
+                cand_subset[i:(i + j)] = j
                 i += j
-        else:
-            h_combined[:, :self.ha_size] = torch.index_select(h_a, 0, cand_subset)
 
-        h_combined[:, self.ha_size:] = self.hp_model(all_phi_p)
-        ana_scores = self.ana_scoring_model(h_combined)
+        ana_scores = Variable(self.factory.float_tensor(ncands))
+
+        for batch_start in range(0, ncands, batchsize):
+            this_batchsize = min(batchsize, ncands - batch_start)
+
+            h_combined = Variable(self.factory.float_tensor(this_batchsize, self.ha_size + self.hp_size))
+
+            this_phi_p = all_phi_p[batch_start:(batch_start + this_batchsize), :]
+            this_cand_subset = cand_subset[batch_start:(batch_start + this_batchsize)]
+
+            h_combined[:, :self.ha_size] = torch.index_select(h_a, 0, this_cand_subset)
+            h_combined[:, self.ha_size:] = self.hp_model(this_phi_p)
+
+            ana_scores[batch_start:(batch_start + this_batchsize)] = self.ana_scoring_model(h_combined)
 
         return ana_scores
 
