@@ -167,7 +167,11 @@ class MentionRankingModel(torch.nn.Module):
         loss_contributing_idx = loss_contributing.nonzero()[:, 0]
         n_loss_contributing = loss_contributing_idx.size()[0]
 
-        # Flag epsilons
+        # In the second run, we just compute the scores for the two elements per example
+        # that contribute to the margin loss. At most one of them can be an epsilon score.
+        # The scores will be put in an nmentions x 2 matrix. The following code determines
+        # which of the entries in this matrix come from the eps and the ana scorer, respectively,
+        # and which examples must be fed to each of the scorers.
         cand_idx = torch.stack([best_correct_idx, loss_idx], dim=1)
         example_no = self.factory.long_arange(0, doc.nmentions).unsqueeze(1).expand_as(cand_idx)
         is_epsilon = torch.eq(cand_idx, example_no)
@@ -180,6 +184,7 @@ class MentionRankingModel(torch.nn.Module):
         cand_idx_in_doc = cand_idx + example_offsets
         relevant_cands = cand_idx_in_doc[cand_mask]
 
+        # Next, we compute the required scores.
         phi_a = Variable(t_phi_a, volatile=False, requires_grad=False)
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
         sub_phi_a = torch.index_select(phi_a, 0, loss_contributing_idx)
@@ -187,6 +192,7 @@ class MentionRankingModel(torch.nn.Module):
         sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a, batchsize=batchsize)
         sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, cand_subset=cand_subset, batchsize=batchsize)
 
+        # Then we store them in the right components of the scores matrix.
         scores = Variable(self.factory.zeros(n_loss_contributing, 2))
         scores[sub_cand_mask] = sub_ana_scores
         needs_eps = torch.gt(torch.sum(sub_is_epsilon, dim=1), 0)
@@ -194,10 +200,14 @@ class MentionRankingModel(torch.nn.Module):
             eps_idx = Variable(example_no[:sub_cand_mask.size()[0], :].masked_select(1 - sub_cand_mask))
             scores[1 - sub_cand_mask] = sub_eps_scores[eps_idx]
 
+        # The applicable rescaling weights can be taken from the first run. We now compute the scores.
         var_cost_values = Variable(cost_values, requires_grad=False)
         sub_loss_per_example = var_cost_values[loss_contributing_idx].squeeze() * (1.0 - scores[:, 0] + scores[:, 1])
         model_loss = to_cpu(torch.sum(sub_loss_per_example))
 
+        # The loss values computed in the first and the second run should be equal, since the second
+        # run only serves to obtain the gradients. In rare cases, there seems to be a discrepancy
+        # between the scores. This needs more investigation.
         score_diff = abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss']))
         if score_diff > 1e-4:
             logging.warning('Unexpected score difference: %g' % score_diff)
@@ -229,8 +239,12 @@ class MentionRankingModel(torch.nn.Module):
         return loss, ncorrect
 
     def find_margin(self, eps_scores, ana_scores, solution_mask):
+        # This finds the scores and rescaling weights defining the margin loss for each example.
+        # We start by setting up the score matrix.
         scores = self.create_score_matrix(eps_scores, ana_scores)
 
+        # Now find the highest-scoring element in the correct cluster (best_correct)
+        # and the highest-scoring element overall.
         # we can't use infinity here because otherwise multiplication by 0 is NaN
         minimum_score = scores.min()
         solution_scores = solution_mask * scores + (1.0 - solution_mask) * minimum_score
@@ -246,12 +260,16 @@ class MentionRankingModel(torch.nn.Module):
         potential_costs[self.factory.byte_eye(scores.size()[0])] = self.false_new_cost
         cost_matrix = (1.0 - solution_mask) * potential_costs
 
+        # Compute the potential loss for each element and maximise.
         loss_values = cost_matrix * (1.0 + scores - best_correct.unsqueeze(1).expand_as(scores))
         loss_per_example, loss_idx = torch.max(loss_values, dim=1)
 
+        # The cost_values are the rescaling coefficients corresponding to the applicable error type
+        # in each example.
         cost_values = torch.gather(cost_matrix, 1, loss_idx.unsqueeze(1))
         loss = torch.sum(loss_per_example)
 
+        # Return all kinds of results because different callers require different details.
         return {
             'scores': scores,
             'best_correct': best_correct,
@@ -279,6 +297,10 @@ class MentionRankingModel(torch.nn.Module):
         return to_cpu(scores)
 
     def create_score_matrix(self, eps_scores, ana_scores):
+        # This method takes the complete epsilon and antecedent scores for a document
+        # and arranges them in a lower-triangular matrix with one row for each mention,
+        # with the score for being non-anaphoric (epsilon) on the main diagonal and
+        # the scores for each potential antecedent under the diagonal.
         nmentions = eps_scores.size()[0]
 
         all_scores = Variable(self.factory.zeros(nmentions, nmentions))
