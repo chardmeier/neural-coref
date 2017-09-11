@@ -265,10 +265,23 @@ class MentionRankingModel(torch.nn.Module):
             'loss_per_example': loss_per_example
         }
 
+    def predict(self, doc, batchsize=None):
+        t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
+        t_phi_p = self.factory.to_device(doc.pairwise_features.long())
+
+        phi_a = Variable(t_phi_a, volatile=True)
+        phi_p = Variable(t_phi_p, volatile=True)
+        eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
+        ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
+
+        scores = self.create_score_matrix(eps_scores, ana_scores)
+
+        return to_cpu(scores)
+
     def create_score_matrix(self, eps_scores, ana_scores):
         nmentions = eps_scores.size()[0]
 
-        all_scores = self.factory.zeros(nmentions, nmentions)
+        all_scores = Variable(self.factory.zeros(nmentions, nmentions))
 
         # Put epsilon scores on the main diagonal
         eps_idx = self.factory.byte_eye(nmentions)
@@ -545,29 +558,10 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                      (epoch, train_loss_reg, train_loss_unreg, dev_loss, dev_acc))
 
 
-def predict(model, test_set, cuda=False, maxsize_gpu=None):
-    if maxsize_gpu is None:
-        maxsize_gpu = 10000
-
-    if cuda:
-        cpu_model = copy.deepcopy(model).cpu()
-        model.cuda()
-    else:
-        cpu_model = model
-
+def predict(model, test_set, batchsize=None):
     predictions = []
     for doc in test_set:
-        if cuda and doc.nmentions <= maxsize_gpu:
-            phi_a = Variable(doc.anaphoricity_features.long().pin_memory(), volatile=True). \
-                cuda(async=True)
-            phi_p = Variable(doc.pairwise_features.long().pin_memory(), volatile=True). \
-                cuda(async=True)
-            doc_pred = to_cpu(model(phi_a, phi_p))
-        else:
-            phi_a = Variable(doc.anaphoricity_features.long(), volatile=True)
-            phi_p = Variable(doc.pairwise_features.long(), volatile=True)
-            doc_pred = cpu_model(phi_a, phi_p)
-
+        doc_pred = model.predict(doc, batchsize=batchsize)
         n_doc_pred = doc_pred.data.numpy()
         n_doc_pred[numpy.triu_indices_from(n_doc_pred, 1)] = float('-inf')
         argmax = n_doc_pred.argmax(axis=1)
@@ -717,9 +711,9 @@ def test_mode(args, model, cuda):
     logging.info('Loading test data...')
     with h5py.File(args.test_file, 'r') as h5:
         test_set = features.load_from_hdf5(h5)
-    
+
     logging.info('Predicting...')
-    predictions = predict(model, test_set, cuda, 350)
+    predictions = predict(model, test_set, batchsize=20000)
 
     for doc in predictions:
         print(' '.join(str(m) for m in doc))
