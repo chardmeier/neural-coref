@@ -551,6 +551,8 @@ def test_mode(args, model, cuda):
         logging.info('Loading model...')
         with open(args.model_file, 'rb') as f:
             model.load_state_dict(torch.load(f))
+        if cuda:
+            model.cuda()
 
     logging.info('Loading test data...')
     with h5py.File(args.test_file, 'r') as h5:
