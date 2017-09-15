@@ -298,7 +298,7 @@ class MentionRankingModel(torch.nn.Module):
         eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
         ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
 
-        scores = self.create_score_matrix(eps_scores, ana_scores)
+        scores = self.create_score_matrix(eps_scores.data, ana_scores.data)
 
         return to_cpu(scores)
 
@@ -309,7 +309,7 @@ class MentionRankingModel(torch.nn.Module):
         # the scores for each potential antecedent under the diagonal.
         nmentions = eps_scores.size()[0]
 
-        all_scores = Variable(self.factory.zeros(nmentions, nmentions))
+        all_scores = self.factory.zeros(nmentions, nmentions)
 
         # Put epsilon scores on the main diagonal
         eps_idx = self.factory.byte_eye(nmentions)
@@ -439,7 +439,7 @@ def predict(model, test_set, batchsize=None):
     predictions = []
     for doc in test_set:
         doc_pred = model.predict(doc, batchsize=batchsize)
-        n_doc_pred = doc_pred.data.numpy()
+        n_doc_pred = doc_pred.numpy()
         n_doc_pred[numpy.triu_indices_from(n_doc_pred, 1)] = float('-inf')
         argmax = n_doc_pred.argmax(axis=1)
         predictions.append([x for x in argmax])
