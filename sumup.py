@@ -12,8 +12,8 @@ def get_scores(fname):
                 in_totals = True
             if in_totals and line.startswith('Coreference:'):
                 tok = line.rstrip('\n').split()
-                p = float(tok[5].rstrip('%'))
-                r = float(tok[10].rstrip('%'))
+                p = float(tok[10].rstrip('%'))
+                r = float(tok[5].rstrip('%'))
                 f = float(tok[12].rstrip('%'))
                 return p, r, f
 
