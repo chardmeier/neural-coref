@@ -69,7 +69,7 @@ class EpsilonScoringModel(torch.nn.Module):
 
 
 class AntecedentScoringModel(torch.nn.Module):
-    def __init__(self, phi_p_size, hp_size, ha_size, hidden_size=None, cuda=False):
+    def __init__(self, phi_p_size, hp_size, ha_size, hidden_size=None, dropout=None, cuda=False):
         super(AntecedentScoringModel, self).__init__()
 
         self.with_cuda = cuda
@@ -78,14 +78,19 @@ class AntecedentScoringModel(torch.nn.Module):
         self.hp_size = hp_size
         self.hp_model = HModel(phi_p_size, hp_size)
 
+        layers = []
+
+        if dropout:
+            layers.append(torch.nn.Dropout(dropout))
+
         if hidden_size:
-            self.ana_scoring_model = torch.nn.Sequential(
-                    torch.nn.Linear(ha_size + hp_size, hidden_size),
-                    torch.nn.Tanh(),
-                    torch.nn.Linear(hidden_size, 1)
-                )
+            layers.append(torch.nn.Linear(ha_size + hp_size, hidden_size))
+            layers.append(torch.nn.Tanh())
+            layers.append(torch.nn.Linear(hidden_size, 1))
         else:
-            self.ana_scoring_model = torch.nn.Linear(ha_size + hp_size, 1)
+            layers.append(torch.nn.Linear(ha_size + hp_size, 1))
+
+        self.ana_scoring_model = torch.nn.Sequential(*layers)
 
         if cuda:
             self.factory = util.CudaFactory()
@@ -444,6 +449,7 @@ def predict(model, test_set, batchsize=None):
 
 def load_net_config(file):
     net_config = {
+        'dropout_h_comb': None,
         'ha_size': 128,
         'hp_size': 700,
         'g2_size': None
@@ -499,6 +505,7 @@ def create_model(args, cuda):
     ana_model = AntecedentScoringModel(pairwise_fsize,
                                        net_config['hp_size'], net_config['ha_size'],
                                        hidden_size=net_config['g2_size'],
+                                       dropout=net_config['dropout_h_comb'],
                                        cuda=cuda)
 
     model = MentionRankingModel(eps_model, ana_model, cuda=cuda)
