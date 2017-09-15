@@ -17,6 +17,9 @@ def get_scores(fname):
                 f = float(tok[12].rstrip('%'))
                 return p, r, f
 
+    print('No totals found in ' + fname, file=sys.stderr)
+    return 0, 0, 0
+
 
 def main():
     if len(sys.argv) != 2:
