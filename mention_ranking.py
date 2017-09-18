@@ -383,6 +383,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
     logging.info('Starting training...')
     for epoch in range(train_config['nepochs']):
+        model.train()
         train_loss_reg = 0.0
         train_loss_unreg = 0.0
         for i, idx in enumerate(numpy.random.permutation(epoch_size)):
@@ -420,6 +421,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
                 torch.save(cpu_model.state_dict(), f)
 
         logging.info('Computing devset performance...')
+        model.eval()
         dev_loss = 0.0
         dev_correct = 0
         dev_total = 0
@@ -436,6 +438,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
 
 def predict(model, test_set, batchsize=None):
+    model.eval()
     predictions = []
     for doc in test_set:
         doc_pred = model.predict(doc, batchsize=batchsize)
