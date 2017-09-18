@@ -93,13 +93,8 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
         print(flush=True)
 
         if checkpoint:
-            if cuda:
-                cpu_model = copy.deepcopy(model).cpu()
-            else:
-                cpu_model = model
-
-            with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
-                torch.save(cpu_model.state_dict(), f)
+            with h5py.File('%s-%03d' % (checkpoint, epoch), 'w') as h5:
+                util.save_model(h5, model)
 
         dev_loss = 0.0
         dev_correct = 0
@@ -170,8 +165,8 @@ def main():
     train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
 
     if args.model_file:
-        with open(args.model_file, 'wb') as f:
-            torch.save(model.state_dict(), f)
+        with h5py.File(args.model_file, 'w') as h5:
+            util.save_model(h5, model)
 
 
 if __name__ == '__main__':
