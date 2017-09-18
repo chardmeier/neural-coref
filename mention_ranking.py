@@ -215,8 +215,10 @@ class MentionRankingModel(torch.nn.Module):
         # The loss values computed in the first and the second run should be equal, since the second
         # run only serves to obtain the gradients. In rare cases, there seems to be a discrepancy
         # between the scores. This needs more investigation.
+        # The warning is silenced for nets with dropout until we've implemented consistent dropout masks
+        # in the two-stage scoring process.
         score_diff = abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss']))
-        if score_diff > 1e-4:
+        if score_diff > 1e-4 and 'dropout_h_comb' not in self.net_config:
             logging.warning('Unexpected score difference: %g' % score_diff)
 
         return model_loss
@@ -414,11 +416,10 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         print(flush=True)
 
-        cpu_model = copy.deepcopy(model).cpu()
-
         if checkpoint:
             logging.info('Saving checkpoint...')
-            util.save_model('%s-%03d' % (checkpoint, epoch), cpu_model.state_dict())
+            with h5py.File('%s-%03d' % (checkpoint, epoch), 'w') as h5:
+                util.save_model(h5, model)
 
         logging.info('Computing devset performance...')
         model.eval()
@@ -559,7 +560,8 @@ def training_mode(args, model, cuda):
 
     if args.model_file:
         logging.info('Saving model...')
-        util.save_model(args.model_file, model)
+        with h5py.File(args.model_file, 'w') as h5:
+            util.save_model(h5, model)
 
     return model
 
@@ -567,10 +569,8 @@ def training_mode(args, model, cuda):
 def test_mode(args, model, cuda):
     if args.model_file:
         logging.info('Loading model...')
-        with open(args.model_file, 'rb') as f:
-            model.load_state_dict(torch.load(f))
-        if cuda:
-            model.cuda()
+        with h5py.File(args.model_file, 'r') as h5:
+            model = util.load_model(h5, cuda)
 
     logging.info('Loading test data...')
     with h5py.File(args.test_file, 'r') as h5:

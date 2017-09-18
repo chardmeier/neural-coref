@@ -4,6 +4,7 @@ import mention_ranking
 
 import collections
 import copy
+import io
 import json
 import math
 import numbers
@@ -130,24 +131,24 @@ def to_cpu(inp):
             return inp
 
 
-def save_model(filename, model):
-    with zipfile.ZipFile(filename, mode='w') as zf:
-        with zf.open('net-config', mode='w') as f:
-            json.dump(model.net_config, f, indent=4)
+def save_model(h5, model):
+    h5.attrs['model-class'] = model.__class__.__name__
+    h5.attrs['net-config'] = json.dumps(model.net_config)
 
-        with zf.open('state-dict', mode='w') as f:
-            torch.save(model.state_dict(), f)
+    for name, tensor in model.state_dict().items():
+        h5[name] = tensor.cpu().numpy()
 
 
-def load_model(filename, cuda=False):
-    with zipfile.ZipFile(filename, mode='r') as zf:
-        with zf.open('net-config') as f:
-            net_config = json.load(f)
+def load_model(h5, cuda=False):
+    if h5.attrs['model-class'] != 'MentionRankingModel':
+        raise Exception('Unknown model: ' + h5.attrs['model-class'])
 
-        model = mention_ranking.setup_model(net_config, cuda)
+    net_config = json.loads(h5.attrs['net-config'])
 
-        with zf.open('state-dict') as f:
-            model.load_state_dict(torch.load(f))
+    model = mention_ranking.setup_model(net_config, cuda)
+    model.load_state_dict({name: torch.from_numpy(numpy.array(val)) for name, val in h5.items()})
+    if cuda:
+        model.cuda()
 
     return model
 
