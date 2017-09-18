@@ -132,21 +132,22 @@ def to_cpu(inp):
 
 
 def save_model(h5, model):
-    h5.attrs['model-class'] = model.__class__.__name__
-    h5.attrs['net-config'] = json.dumps(model.net_config)
+    model_type = model.__class__.__name__
+    grp = h5.require_group(model_type)
+
+    grp.attrs['net-config'] = json.dumps(model.net_config)
 
     for name, tensor in model.state_dict().items():
-        h5[name] = tensor.cpu().numpy()
+        grp[name] = tensor.cpu().numpy()
 
 
 def load_model(h5, cuda=False):
-    if h5.attrs['model-class'] != 'MentionRankingModel':
-        raise Exception('Unknown model: ' + h5.attrs['model-class'])
+    grp = h5['MentionRankingModel']
 
-    net_config = json.loads(h5.attrs['net-config'])
+    net_config = json.loads(grp.attrs['net-config'])
 
     model = mention_ranking.setup_model(net_config, cuda)
-    model.load_state_dict({name: torch.from_numpy(numpy.array(val)) for name, val in h5.items()})
+    model.load_state_dict({name: torch.from_numpy(numpy.array(val)) for name, val in grp.items()})
     if cuda:
         model.cuda()
 
