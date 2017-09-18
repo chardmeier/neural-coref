@@ -1,11 +1,15 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
+import mention_ranking
+
 import collections
 import copy
+import json
 import math
 import numbers
 import numpy
 import torch
+import zipfile
 
 from torch.autograd import Variable
 
@@ -124,6 +128,28 @@ def to_cpu(inp):
             return inp.cpu()
         else:
             return inp
+
+
+def save_model(filename, model):
+    with zipfile.ZipFile(filename, mode='w') as zf:
+        with zf.open('net-config', mode='w') as f:
+            json.dump(model.net_config, f, indent=4)
+
+        with zf.open('state-dict', mode='w') as f:
+            torch.save(model.state_dict(), f)
+
+
+def load_model(filename, cuda=False):
+    with zipfile.ZipFile(filename, mode='r') as zf:
+        with zf.open('net-config') as f:
+            net_config = json.load(f)
+
+        model = mention_ranking.setup_model(net_config, cuda)
+
+        with zf.open('state-dict') as f:
+            model.load_state_dict(torch.load(f))
+
+    return model
 
 
 # from https://stackoverflow.com/a/3233356

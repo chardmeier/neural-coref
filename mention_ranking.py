@@ -130,8 +130,9 @@ class AntecedentScoringModel(torch.nn.Module):
 
 
 class MentionRankingModel(torch.nn.Module):
-    def __init__(self, eps_model, ana_model, cuda=False):
+    def __init__(self, net_config, eps_model, ana_model, cuda=False):
         super(MentionRankingModel, self).__init__()
+        self.net_config = net_config
         self.eps_model = eps_model
         self.ana_model = ana_model
         if cuda:
@@ -417,8 +418,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
         if checkpoint:
             logging.info('Saving checkpoint...')
-            with open('%s-%03d' % (checkpoint, epoch), 'wb') as f:
-                torch.save(cpu_model.state_dict(), f)
+            util.save_model('%s-%03d' % (checkpoint, epoch), cpu_model.state_dict())
 
         logging.info('Computing devset performance...')
         model.eval()
@@ -487,6 +487,19 @@ def load_train_config(file):
     return train_config
 
 
+def setup_model(net_config, cuda):
+    eps_model = EpsilonScoringModel(net_config['anaphoricity_fsize'], net_config['ha_size'], cuda=cuda)
+    ana_model = AntecedentScoringModel(net_config['pairwise_fsize'],
+                                       net_config['hp_size'], net_config['ha_size'],
+                                       hidden_size=net_config['g2_size'],
+                                       dropout=net_config['dropout_h_comb'],
+                                       cuda=cuda)
+
+    model = MentionRankingModel(net_config, eps_model, ana_model, cuda=cuda)
+
+    return model
+
+
 def create_model(args, cuda):
     net_config = load_net_config(args.net_config)
     print('net_config ' + json.dumps(net_config), file=sys.stderr)
@@ -504,14 +517,10 @@ def create_model(args, cuda):
     with h5py.File(h5_file, 'r') as h5:
         anaphoricity_fsize, pairwise_fsize = features.vocabulary_sizes_from_hdf5(h5)
 
-    eps_model = EpsilonScoringModel(anaphoricity_fsize, net_config['ha_size'], cuda=cuda)
-    ana_model = AntecedentScoringModel(pairwise_fsize,
-                                       net_config['hp_size'], net_config['ha_size'],
-                                       hidden_size=net_config['g2_size'],
-                                       dropout=net_config['dropout_h_comb'],
-                                       cuda=cuda)
+    net_config['anaphoricity_fsize'] = anaphoricity_fsize
+    net_config['pairwise_fsize'] = pairwise_fsize
 
-    model = MentionRankingModel(eps_model, ana_model, cuda=cuda)
+    model = setup_model(net_config, cuda)
 
     return model
 
@@ -550,8 +559,7 @@ def training_mode(args, model, cuda):
 
     if args.model_file:
         logging.info('Saving model...')
-        with open(args.model_file, 'wb') as f:
-            torch.save(model.state_dict(), f)
+        util.save_model(args.model_file, model)
 
     return model
 
