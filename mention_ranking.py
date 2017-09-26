@@ -5,7 +5,6 @@ import pretrain
 import util
 
 import argparse
-import copy
 import h5py
 import json
 import logging
