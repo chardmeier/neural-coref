@@ -300,7 +300,6 @@ def main():
     test_pw_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-pwTestFeats.txt')
     train_opc_file = os.path.join(data_path, 'SMALLTrainOPCs.txt')
     dev_opc_file = os.path.join(data_path, 'SMALLDevOPCs.txt')
-    test_opc_file = os.path.join(data_path, 'SMALLTestOPCs.txt')
 
     training_h5 = os.path.join(out_path, 'training.h5')
     dev_h5 = os.path.join(out_path, 'dev.h5')
@@ -327,7 +326,7 @@ def main():
     print('Loading test data...')
     test_set = load_text_data(test_ana_file, ana_fmap_file,
                               test_pw_file, pw_fmap_file,
-                              test_opc_file)
+                              None)
 
     print('Saving...')
     with h5py.File(test_h5, 'w') as h5:
