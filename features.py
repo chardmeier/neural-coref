@@ -287,15 +287,24 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
 
 
 def main():
-    data_path = '/home/nobackup/ch/coref'
-    ana_fmap_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-anaphMapping.txt')
-    train_ana_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-anaphTrainFeats.txt')
-    dev_ana_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-anaphDevFeats.txt')
-    pw_fmap_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-pwMapping.txt')
-    train_pw_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-pwTrainFeats.txt')
-    dev_pw_file = os.path.join(data_path, 'NONE-FINAL+MOARANAPH+MOARPW-pwDevFeats.txt')
-    train_opc_file = os.path.join(data_path, 'TrainOPCs.txt')
-    dev_opc_file = os.path.join(data_path, 'DevOPCs.txt')
+    data_path = '/wrk/chardmei/DONOTREMOVE/conll-features'
+    out_path = '/homeappl/home/chardmei/coref/neural-coref/exp/data'
+
+    ana_fmap_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-anaphMapping.txt')
+    train_ana_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-anaphTrainFeats.txt')
+    dev_ana_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-anaphDevFeats.txt')
+    test_ana_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-anaphTestFeats.txt')
+    pw_fmap_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-pwMapping.txt')
+    train_pw_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-pwTrainFeats.txt')
+    dev_pw_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-pwDevFeats.txt')
+    test_pw_file = os.path.join(data_path, 'SMALL-FINAL+MOARANAPH+MOARPW-pwTestFeats.txt')
+    train_opc_file = os.path.join(data_path, 'SMALLTrainOPCs.txt')
+    dev_opc_file = os.path.join(data_path, 'SMALLDevOPCs.txt')
+    test_opc_file = os.path.join(data_path, 'SMALLTestOPCs.txt')
+
+    training_h5 = os.path.join(out_path, 'training.h5')
+    dev_h5 = os.path.join(out_path, 'dev.h5')
+    test_h5 = os.path.join(out_path, 'test.h5')
 
     print('Loading training data...')
     training_set = load_text_data(train_ana_file, ana_fmap_file,
@@ -303,7 +312,7 @@ def main():
                                   train_opc_file)
 
     print('Saving...')
-    with h5py.File('/home/nobackup/ch/coref/training.h5', 'w') as h5:
+    with h5py.File(training_h5, 'w') as h5:
         training_set.save_to_hdf5(h5)
 
     print('Loading development data...')
@@ -312,8 +321,17 @@ def main():
                              dev_opc_file)
 
     print('Saving...')
-    with h5py.File('/home/nobackup/ch/coref/dev.h5', 'w') as h5:
+    with h5py.File(dev_h5, 'w') as h5:
         dev_set.save_to_hdf5(h5)
+
+    print('Loading test data...')
+    test_set = load_text_data(test_ana_file, ana_fmap_file,
+                              test_pw_file, pw_fmap_file,
+                              test_opc_file)
+
+    print('Saving...')
+    with h5py.File(test_h5, 'w') as h5:
+        test_set.save_to_hdf5(h5)
 
 
 if __name__ == '__main__':
