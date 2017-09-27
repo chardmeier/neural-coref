@@ -217,7 +217,7 @@ class MentionRankingModel(torch.nn.Module):
         # The warning is silenced for nets with dropout until we've implemented consistent dropout masks
         # in the two-stage scoring process.
         score_diff = abs(self.factory.get_single(model_loss) - self.factory.get_single(margin_info['loss']))
-        if score_diff > 1e-4 and self.net_config['dropout_h_comb'] is not None:
+        if score_diff > 1e-4 and self.net_config['dropout_h_comb'] is None:
             logging.warning('Unexpected score difference: %g' % score_diff)
 
         return model_loss
