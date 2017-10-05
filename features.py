@@ -125,13 +125,18 @@ class CorefCorpus:
 
 
 class CorefDocument:
-    def __init__(self, anaphoricity_dim, anaphoricity_features, pairwise_dim, pairwise_features, opc_m2c):
+    def __init__(self, anaphoricity_dim, anaphoricity_features, anaphoricity_offsets,
+                 pairwise_dim, pairwise_features, pairwise_doc_offsets, pairwise_mention_offsets,
+                 opc_m2c):
         self.nmentions = len(anaphoricity_features)
         self.anaphoricity_dim = anaphoricity_dim
         self.pairwise_dim = pairwise_dim
 
         self.anaphoricity_features = anaphoricity_features
+        self.anaphoricity_offsets = anaphoricity_offsets
         self.pairwise_features = pairwise_features
+        self.pairwise_doc_offsets = pairwise_doc_offsets
+        self.pairwise_mention_offsets = pairwise_mention_offsets
         self.mention_to_opc = opc_m2c
 
         # Note: This must be  a list of *sorted* lists
@@ -238,38 +243,37 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
             mentions = ana_line.rstrip('\n').split('|')
             nmentions = len(mentions) - 1
             ftlist = []
+            offsets = []
             for m in mentions[1:]:
-                if m:
-                    # note: all features get converted to 1-based
-                    ftlist.append([int(ft) + 1 for ft in m.split(' ')])
-                else:
-                    ftlist.append([])
-            maxfeat = max(len(ft) for ft in ftlist)
-            ana_features = torch.IntTensor(nmentions, maxfeat).zero_()
-            for i, ft in enumerate(ftlist):
-                if ft:
-                    ana_features[i, :len(ft)] = torch.IntTensor(ft)
+                offsets.append(len(ftlist))
+                ftlist.extend(int(ft) for ft in m.split(' '))
+            ana_features = torch.IntTensor(ftlist)
+            ana_offsets = torch.IntTensor(offsets)
 
             # pairwise features
             mention_pairs = pw_line.rstrip('\n').split('|')
             split_mention_pairs = [m.split(' ') for m in mention_pairs[1:]]
-            max_pw_features = max(len(m) for m in split_mention_pairs)
-            pw_features = torch.IntTensor(nmentions * (nmentions - 1) // 2, max_pw_features).zero_()
             curr_m = 0
             ant_m = 0
             i = 0
+            ftlist = []
+            doc_offsets = []
+            mention_offsets = []
             for m in split_mention_pairs:
                 if curr_m != ant_m:
-                    if m:
-                        # note: all features get converted to 1-based
-                        conv_feats = torch.IntTensor([int(ft) + 1 for ft in m])
-                        pw_features[i, :len(m)] = conv_feats
+                    mention_offsets.append(len(ftlist) - doc_offsets[-1])
+                    ftlist.extend(int(ft) for ft in m)
                     i += 1
+
                 if curr_m == ant_m:
+                    doc_offsets.append(len(ftlist))
                     curr_m += 1
                     ant_m = 0
                 else:
                     ant_m += 1
+            pw_features = torch.IntTensor(ftlist)
+            pw_doc_offsets = torch.IntTensor(doc_offsets)
+            pw_mention_offsets = torch.IntTensor(mention_offsets)
 
             # oracle predicted clusters
             if opc_line:
@@ -281,7 +285,9 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
             else:
                 opc_m2c = torch.zeros(nmentions).int()
 
-            docs.append(CorefDocument(len(ana_fmap), ana_features, len(pw_fmap), pw_features, opc_m2c))
+            docs.append(CorefDocument(len(ana_fmap), ana_features, ana_offsets,
+                                      len(pw_fmap), pw_features, pw_doc_offsets, pw_mention_offsets,
+                                      opc_m2c))
 
     return CorefCorpus(ana_fmap, pw_fmap, docs)
 
