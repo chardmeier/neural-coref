@@ -8,65 +8,6 @@ import os
 import torch
 
 
-#def convert_anaph(infile, fmap_file):
-#    with open(fmap_file, 'r') as f:
-#        feature_list = [line.rstrip('\n').split(' : ')[1] for line in f]
-#    maxlen = max(len(f) for f in feature_list)
-#    feature_dtype = 'U%d' % maxlen
-#    feature_map = numpy.array(feature_list, dtype=feature_dtype)
-#
-#    nfeatures = feature_map.shape[0]
-#    attributes = {
-#        'nfeatures': nfeatures,
-#        'feature_map': feature_map
-#    }
-#
-#    docs = []
-#    with open(infile, 'r') as f:
-#        for line in f:
-#            mentions = line.rstrip('\n').split('|')
-#            nmentions = len(mentions) - 1
-#            coo_indices_list = []
-#            for i, m in enumerate(mentions[1:]):
-#                if m:
-#                    for ft in m.split(' '):
-#                        coo_indices_list.append([i, int(ft)])
-#            coo_indices = torch.LongTensor(coo_indices_list).transpose(0, 1)
-#            coo_values = torch.FloatTensor([1.0] * len(coo_indices_list))
-#            matrix = torch.sparse.FloatTensor(coo_indices, coo_values, torch.Size([nmentions, nfeatures]))
-#            docs.append(matrix)
-#
-#    return AnaphoricityFeatures(docs, attributes=attributes)
-
-
-# def store_anaph(anaph, outfile):
-#     metadata = []
-#     docstart = 0
-#     for m in anaph.docs:
-#         nmentions, maxfeats = m.shape
-#         metadata.append((docstart, nmentions, maxfeats))
-#         docstart += nmentions * maxfeats
-#     flattened = numpy.concatenate([numpy.ravel(m.numpy()) for m in anaph.docs])
-#     with h5py.File(outfile, 'w') as h5:
-#         group = h5.create_group('anaphoricity_features')
-#         for key, val in anaph.attributes.items():
-#             group.attrs.create(key, val)
-#         group.create_dataset('metadata', (len(metadata), 3), dtype=numpy.int64, data=metadata)
-#         group.create_dataset('features', (len(flattened),), dtype=numpy.int32, data=flattened)
-#
-#
-# def load_anaph(h5_file):
-#     with h5py.File(h5_file, 'r') as h5:
-#         metadata = h5['/anaphoricity_features/metadata']
-#         flat_features = h5['/anaphoricity_features/features']
-#         attributes = dict(h5['/anaphoricity_features'].attrs)
-#         docs = []
-#         for i in range(metadata.shape[0]):
-#             from_idx, nmentions, maxfeats = metadata[i, :]
-#             to_idx = from_idx + nmentions * maxfeats
-#             docs.append(torch.from_numpy(flat_features[from_idx:to_idx].reshape(nmentions, maxfeats).copy()))
-#     return AnaphoricityFeatures(docs, attributes=attributes)
-
 class CorefCorpus:
     def __init__(self, anaphoricity_fmap, pairwise_fmap, docs):
         self.anaphoricity_fmap = anaphoricity_fmap
@@ -339,37 +280,4 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-#class AnaphoricityFeatures:
-#    def __init__(self, docs, attributes=None):
-#        self.docs = docs
-#        if attributes is None:
-#            self.attributes = {'nfeatures': int(max(d.max() for d in docs)) + 1}
-#        else:
-#            self.attributes = attributes
-#
-#    def nfeatures(self):
-#        return self.attributes['nfeatures']
-
-
-#class OraclePredictedClustering:
-#    def __init__(self, opc_file):
-#        self.clusters = []
-#        self.mention_to_cluster = []
-#        with open(opc_file, 'r') as f:
-#            for doc, line in enumerate(f):
-#                self.clusters.append([])
-#                doc_m2c = {}
-#                for sc in line.rstrip('\n').split('|'):
-#                    cluster = {int(m) for m in sc.split(' ')}
-#                    cluster_idx = len(self.clusters[-1])
-#                    self.clusters[-1].append(cluster)
-#                    for m in cluster:
-#                        doc_m2c[m] = cluster_idx
-#                self.mention_to_cluster.append([doc_m2c[i] for i in range(len(doc_m2c))])
-#                assert len(self.mention_to_cluster[-1]) == len(doc_m2c)
-
-
-
 
