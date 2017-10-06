@@ -250,15 +250,6 @@ def main():
     dev_h5 = os.path.join(out_path, 'dev.h5')
     test_h5 = os.path.join(out_path, 'test.h5')
 
-    print('Loading training data...')
-    training_set = load_text_data(train_ana_file, ana_fmap_file,
-                                  train_pw_file, pw_fmap_file,
-                                  train_opc_file)
-
-    print('Saving...')
-    with h5py.File(training_h5, 'w') as h5:
-        training_set.save_to_hdf5(h5)
-
     print('Loading development data...')
     dev_set = load_text_data(dev_ana_file, ana_fmap_file,
                              dev_pw_file, pw_fmap_file,
@@ -276,6 +267,15 @@ def main():
     print('Saving...')
     with h5py.File(test_h5, 'w') as h5:
         test_set.save_to_hdf5(h5)
+
+    print('Loading training data...')
+    training_set = load_text_data(train_ana_file, ana_fmap_file,
+                                  train_pw_file, pw_fmap_file,
+                                  train_opc_file)
+
+    print('Saving...')
+    with h5py.File(training_h5, 'w') as h5:
+        training_set.save_to_hdf5(h5)
 
 
 if __name__ == '__main__':
