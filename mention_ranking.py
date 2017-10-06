@@ -22,14 +22,13 @@ class HModel(torch.nn.Module):
     def __init__(self, nfeatures, size_ha):
         super(HModel, self).__init__()
         self.size_ha = size_ha
-        self.embedding = torch.nn.Embedding(nfeatures + 1, size_ha, padding_idx=0)
+        self.embedding = torch.nn.EmbeddingBag(nfeatures, size_ha)
         self.bias = torch.nn.Parameter(torch.FloatTensor(size_ha))
 
-    def forward(self, phi_a):
-        batch_size = phi_a.size()[0]
-        ft_embed = self.embedding(phi_a)
-        sum_embed = torch.sum(ft_embed, dim=1).squeeze(1)
-        out = torch.tanh(sum_embed + self.bias.expand(batch_size, self.size_ha))
+    def forward(self, values, offsets):
+        batch_size = offsets.size()[0]
+        ft_embed = self.embedding(values, offsets)
+        out = torch.tanh(ft_embed + self.bias.expand(batch_size, self.size_ha))
         return out
 
 
@@ -47,8 +46,8 @@ class EpsilonScoringModel(torch.nn.Module):
         else:
             self.factory = util.CPUFactory()
 
-    def forward(self, phi_a, batchsize=None):
-        nmentions = phi_a.size()[0]
+    def forward(self, phi_a, phi_a_offsets, batchsize=None):
+        nmentions = phi_a_offsets.size()[0]
 
         if batchsize is None:
             batchsize = nmentions
@@ -58,9 +57,13 @@ class EpsilonScoringModel(torch.nn.Module):
 
         for batch_start in range(0, nmentions, batchsize):
             this_batchsize = min(batchsize, nmentions - batch_start)
-            this_phi_a = phi_a[batch_start:(batch_start + this_batchsize)]
+            start_idx = phi_a_offsets[batch_start]
+            end_idx = phi_a_offsets[batch_start + this_batchsize]
+            this_phi_a = phi_a[start_idx:end_idx]
+            this_phi_a_offsets = phi_a_offsets[batch_start:(batch_start + this_batchsize)]
+            this_phi_a_offsets -= this_phi_a_offsets[0]
 
-            this_h_a = self.ha_model(this_phi_a)
+            this_h_a = self.ha_model(this_phi_a, this_phi_a_offsets)
             h_a[batch_start:(batch_start + this_batchsize), :] = this_h_a
             eps_scores[batch_start:(batch_start + this_batchsize)] = self.eps_scoring_model(this_h_a)
 
@@ -96,9 +99,9 @@ class AntecedentScoringModel(torch.nn.Module):
         else:
             self.factory = util.CPUFactory()
 
-    def forward(self, h_a, all_phi_p, cand_subset=None, batchsize=None):
+    def forward(self, h_a, phi_p, phi_p_offsets, cand_subset=None, batchsize=None):
         nmentions = h_a.size()[0]
-        ncands = all_phi_p.size()[0]
+        ncands = phi_p_offsets.size()[0]
 
         if batchsize is None:
             batchsize = ncands
@@ -117,11 +120,16 @@ class AntecedentScoringModel(torch.nn.Module):
 
             h_combined = Variable(self.factory.float_tensor(this_batchsize, self.ha_size + self.hp_size))
 
-            this_phi_p = all_phi_p[batch_start:(batch_start + this_batchsize), :]
+            start_idx = phi_p_offsets[batch_start]
+            end_idx = phi_p_offsets[batch_start + this_batchsize]
+            this_phi_p = phi_p[start_idx:end_idx]
+            this_phi_p_offsets = phi_p_offsets[batch_start:(batch_start + this_batchsize)]
+            this_phi_p_offsets -= this_phi_p_offsets[0]
+
             this_cand_subset = cand_subset[batch_start:(batch_start + this_batchsize)]
 
             h_combined[:, :self.ha_size] = torch.index_select(h_a, 0, this_cand_subset)
-            h_combined[:, self.ha_size:] = self.hp_model(this_phi_p)
+            h_combined[:, self.ha_size:] = self.hp_model(this_phi_p, this_phi_p_offsets)
 
             ana_scores[batch_start:(batch_start + this_batchsize)] = self.ana_scoring_model(h_combined)
 
@@ -151,14 +159,18 @@ class MentionRankingModel(torch.nn.Module):
 
     def compute_loss(self, doc, batchsize=None):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
+        t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
         t_phi_p = self.factory.to_device(doc.pairwise_features.long())
+        t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
         solution_mask = self.factory.to_device(doc.solution_mask)
 
         # First do the full computation without gradients
         phi_a = Variable(t_phi_a, volatile=True)
+        phi_a_offsets = Variable(t_phi_a_offsets, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
-        all_ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
+        phi_p_offsets = Variable(t_phi_p_offsets, volatile=True)
+        all_eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
+        all_ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         best_correct_idx = margin_info['best_correct_idx']
@@ -192,11 +204,15 @@ class MentionRankingModel(torch.nn.Module):
 
         # Next, we compute the required scores.
         phi_a = Variable(t_phi_a, volatile=False, requires_grad=False)
+        phi_a_offsets = Variable(t_phi_a_offsets, volatile=False, requires_grad=False)
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
-        sub_phi_a = torch.index_select(phi_a, 0, loss_contributing_idx)
-        sub_phi_p = torch.index_select(phi_p, 0, relevant_cands)
-        sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a, batchsize=batchsize)
-        sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, cand_subset=cand_subset, batchsize=batchsize)
+        phi_p_offsets = Variable(t_phi_p_offsets, volatile=False, requires_grad=False)
+
+        sub_phi_a, sub_phi_a_offsets = _select_features(phi_a, phi_a_offsets, loss_contributing_idx)
+        sub_phi_p, sub_phi_p_offsets = _select_features(phi_p, phi_p_offsets, relevant_cands)
+        sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a, sub_phi_a_offsets, batchsize=batchsize)
+        sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, sub_phi_p_offsets,
+                                        cand_subset=cand_subset, batchsize=batchsize)
 
         # Then we store them in the right components of the scores matrix.
         scores = Variable(self.factory.zeros(n_loss_contributing, 2))
@@ -322,6 +338,14 @@ class MentionRankingModel(torch.nn.Module):
         all_scores[ana_idx] = ana_scores
 
         return all_scores
+
+
+def _select_features(values, offsets, indices):
+    start_offsets = torch.index_select(offsets, 0, indices)
+    end_offsets = torch.index_select(offsets, 0, indices + 1)
+    out_values = torch.cat([values[a:b] for a, b in zip(start_offsets, end_offsets)])
+    out_offsets = torch.cat([offsets.new(1).zero_(), torch.cumsum(end_offsets - start_offsets, 0)])
+    return out_values, out_offsets
 
 
 def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
