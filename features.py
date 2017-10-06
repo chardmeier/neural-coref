@@ -103,17 +103,15 @@ class CorefCorpus:
         ana_idx = ext_doc_nmentions.cumsum()
         pw_idx = numpy.cumsum(ext_doc_nmentions * (ext_doc_nmentions - 1) // 2)
 
-        max_ana_features = max(d.anaphoricity_features.size()[1] for d in self.docs)
-        fmatrix = numpy.zeros((ana_idx[-1], max_ana_features), dtype=numpy.int32)
-        for i, d in enumerate(self.docs):
-            fmatrix[ana_idx[i]:ana_idx[i + 1], :d.anaphoricity_features.size()[1]] = d.anaphoricity_features.numpy()
-        h5_group.create_dataset('anaphoricity_features', dtype=numpy.int32, data=fmatrix)
+        ana_group = h5_group.create_group('anaphoricity_features')
+        _store_features(ana_group,
+                        [d.anaphoricity_features for d in self.docs],
+                        [d.anaphoricity_offsets for d in self.docs])
 
-        max_pw_features = max(d.pairwise_features.size()[1] for d in self.docs)
-        fmatrix = numpy.zeros((pw_idx[-1], max_pw_features), dtype=numpy.int32)
-        for i, d in enumerate(self.docs):
-            fmatrix[pw_idx[i]:pw_idx[i + 1], :d.pairwise_features.size()[1]] = d.pairwise_features.numpy()
-        h5_group.create_dataset('pairwise_features', dtype=numpy.int32, data=fmatrix)
+        pw_group = h5_group.create_group('pairwise_features')
+        _store_features(pw_group,
+                        [d.pairwise_features for d in self.docs],
+                        [d.pairwise_offsets for d in self.docs])
 
         opc_m2c = numpy.concatenate([d.mention_to_opc.numpy() for d in self.docs])
         h5_group.create_dataset('mention_to_opc', dtype=numpy.int32, data=opc_m2c)
@@ -121,8 +119,7 @@ class CorefCorpus:
 
 class CorefDocument:
     def __init__(self, anaphoricity_dim, anaphoricity_features, anaphoricity_offsets,
-                 pairwise_dim, pairwise_features, pairwise_doc_offsets, pairwise_mention_offsets,
-                 opc_m2c):
+                 pairwise_dim, pairwise_features, pairwise_offsets, opc_m2c):
         self.nmentions = len(anaphoricity_features)
         self.anaphoricity_dim = anaphoricity_dim
         self.pairwise_dim = pairwise_dim
@@ -130,8 +127,7 @@ class CorefDocument:
         self.anaphoricity_features = anaphoricity_features
         self.anaphoricity_offsets = anaphoricity_offsets
         self.pairwise_features = pairwise_features
-        self.pairwise_doc_offsets = pairwise_doc_offsets
-        self.pairwise_mention_offsets = pairwise_mention_offsets
+        self.pairwise_offsets = pairwise_offsets
         self.mention_to_opc = opc_m2c
 
         # Note: This must be  a list of *sorted* lists
@@ -158,10 +154,29 @@ class CorefDocument:
         return torch.FloatTensor([[1] if self.is_anaphoric(m) else [-1] for m in range(self.nmentions)])
 
 
-def _convert_and_truncate(inp):
-    sums = numpy.absolute(inp).sum(axis=0)  # abs is for safety only, should be positive anyway
-    maxlen = sums.nonzero()[0].max() + 1
-    return torch.from_numpy(inp[:, :maxlen])
+def _store_features(group, features, mention_offsets):
+    n_features = sum(f.shape[0] for f in features)
+    n_mention_offsets = sum(f.shape[0] for f in mention_offsets)
+    feature_ds = group.create_dataset('features', shape=(n_features,), dtype=numpy.int32)
+    mention_ds = group.create_dataset('mention_offsets', shape=(n_mention_offsets,), dtype=numpy.int32)
+    doc_ds = group.create_dataset('doc_offsets', shape=(len(features) + 1,), dtype=numpy.int32)
+    fidx = 0
+    oidx = 0
+    for i, (d, o) in enumerate(zip(features, mention_offsets)):
+        feature_ds[fidx:(fidx + d.shape[0])] = d.numpy()
+        mention_ds[oidx:(oidx + o.shape[0])] = o.numpy()
+        doc_ds[i, :] = (fidx, oidx)
+        fidx += d.shape[0]
+        oidx += o.shape[0]
+    doc_ds[-1, :] = (fidx, oidx)
+
+
+def _load_features(group, docno):
+    from_f, from_o = group['doc_offsets'][docno, :]
+    to_f, to_o = group['doc_offsets'][docno + 1, :]
+    features = torch.from_numpy(group['features'][from_f:to_f])
+    offsets = torch.from_numpy(group['mention_offsets'][from_o:to_o])
+    return features, offsets
 
 
 def load_from_hdf5(h5_group):
@@ -172,9 +187,8 @@ def load_from_hdf5(h5_group):
     pairwise_features = h5_group['pairwise_features']
     mention_to_opc = h5_group['mention_to_opc']
 
-    # add 1 because index 0 is used for padding
-    anaphoricity_dim = anaphoricity_fmap.shape[0] + 1
-    pairwise_dim = pairwise_fmap.shape[0] + 1
+    anaphoricity_dim = anaphoricity_fmap.shape[0]
+    pairwise_dim = pairwise_fmap.shape[0]
 
     ndocs = doc_nmentions.shape[0]
 
@@ -184,10 +198,11 @@ def load_from_hdf5(h5_group):
 
     docs = []
     for i in range(ndocs):
-        ana_features = _convert_and_truncate(anaphoricity_features[ana_idx[i]:ana_idx[i + 1], :])
-        pw_features = _convert_and_truncate(pairwise_features[pw_idx[i]:pw_idx[i + 1], :])
+        ana_features, ana_offsets = _load_features(anaphoricity_features, i)
+        pw_features, pw_offsets = _load_features(pairwise_features, i)
         opc_m2c = torch.from_numpy(mention_to_opc[ana_idx[i]:ana_idx[i + 1]])
-        docs.append(CorefDocument(anaphoricity_dim, ana_features, pairwise_dim, pw_features, opc_m2c))
+        docs.append(CorefDocument(anaphoricity_dim, ana_features, ana_offsets,
+                                  pairwise_dim, pw_features, pw_offsets, opc_m2c))
 
     return CorefCorpus(numpy.copy(anaphoricity_fmap), numpy.copy(pairwise_fmap), docs)
 
@@ -243,23 +258,20 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
             ant_m = 0
             i = 0
             ftlist = []
-            doc_offsets = []
-            mention_offsets = []
+            offsets = []
             for m in split_mention_pairs:
                 if curr_m != ant_m:
-                    mention_offsets.append(len(ftlist) - doc_offsets[-1])
+                    offsets.append(len(ftlist))
                     ftlist.extend(int(ft) for ft in m)
                     i += 1
 
                 if curr_m == ant_m:
-                    doc_offsets.append(len(ftlist))
                     curr_m += 1
                     ant_m = 0
                 else:
                     ant_m += 1
             pw_features = torch.IntTensor(ftlist)
-            pw_doc_offsets = torch.IntTensor(doc_offsets)
-            pw_mention_offsets = torch.IntTensor(mention_offsets)
+            pw_offsets = torch.IntTensor(offsets)
 
             # oracle predicted clusters
             if opc_line:
@@ -272,7 +284,7 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
                 opc_m2c = torch.zeros(nmentions).int()
 
             docs.append(CorefDocument(len(ana_fmap), ana_features, ana_offsets,
-                                      len(pw_fmap), pw_features, pw_doc_offsets, pw_mention_offsets,
+                                      len(pw_fmap), pw_features, pw_offsets,
                                       opc_m2c))
 
     return CorefCorpus(ana_fmap, pw_fmap, docs)
