@@ -57,7 +57,7 @@ class CorefCorpus:
 class CorefDocument:
     def __init__(self, anaphoricity_dim, anaphoricity_features, anaphoricity_offsets,
                  pairwise_dim, pairwise_features, pairwise_offsets, opc_m2c):
-        self.nmentions = len(anaphoricity_offsets)
+        self.nmentions = len(anaphoricity_offsets) - 1
         self.anaphoricity_dim = anaphoricity_dim
         self.pairwise_dim = pairwise_dim
 
