@@ -40,10 +40,6 @@ class CorefCorpus:
         doc_nmentions = numpy.array([d.nmentions for d in self.docs], dtype=numpy.int32)
         h5_group.create_dataset('doc_nmentions', dtype=numpy.int32, data=doc_nmentions)
 
-        ext_doc_nmentions = numpy.concatenate([numpy.zeros((1,), dtype=numpy.int32), doc_nmentions])
-        ana_idx = ext_doc_nmentions.cumsum()
-        pw_idx = numpy.cumsum(ext_doc_nmentions * (ext_doc_nmentions - 1) // 2)
-
         ana_group = h5_group.create_group('anaphoricity_features')
         _store_features(ana_group,
                         [d.anaphoricity_features for d in self.docs],
@@ -61,7 +57,7 @@ class CorefCorpus:
 class CorefDocument:
     def __init__(self, anaphoricity_dim, anaphoricity_features, anaphoricity_offsets,
                  pairwise_dim, pairwise_features, pairwise_offsets, opc_m2c):
-        self.nmentions = len(anaphoricity_features)
+        self.nmentions = len(anaphoricity_offsets)
         self.anaphoricity_dim = anaphoricity_dim
         self.pairwise_dim = pairwise_dim
 
@@ -100,7 +96,7 @@ def _store_features(group, features, mention_offsets):
     n_mention_offsets = sum(f.shape[0] for f in mention_offsets)
     feature_ds = group.create_dataset('features', shape=(n_features,), dtype=numpy.int32)
     mention_ds = group.create_dataset('mention_offsets', shape=(n_mention_offsets,), dtype=numpy.int32)
-    doc_ds = group.create_dataset('doc_offsets', shape=(len(features) + 1,), dtype=numpy.int32)
+    doc_ds = group.create_dataset('doc_offsets', shape=(len(features) + 1, 2), dtype=numpy.int32)
     fidx = 0
     oidx = 0
     for i, (d, o) in enumerate(zip(features, mention_offsets)):
@@ -135,7 +131,6 @@ def load_from_hdf5(h5_group):
 
     ext_doc_nmentions = numpy.pad(doc_nmentions, (1, 0), 'constant')
     ana_idx = ext_doc_nmentions.cumsum()
-    pw_idx = numpy.cumsum(ext_doc_nmentions * (ext_doc_nmentions - 1) // 2)
 
     docs = []
     for i in range(ndocs):
@@ -155,7 +150,7 @@ def vocabulary_sizes_from_hdf5(h5_group):
 
 
 def load_feature_map(fmap_file):
-    with open(fmap_file, 'r') as f:
+    with open(fmap_file, 'r', encoding='utf8') as f:
         feature_list = [line.rstrip('\n').split(' : ')[1] for line in f]
     maxlen = max(len(f) for f in feature_list)
     feature_dtype = 'U%d' % maxlen
@@ -167,11 +162,11 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
     ana_fmap = load_feature_map(ana_fmap_file)
     pw_fmap = load_feature_map(pw_fmap_file)
     with contextlib.ExitStack() as stack:
-        ana_f = stack.enter_context(open(ana_file, 'r'))
-        pw_f = stack.enter_context(open(pw_file, 'r'))
+        ana_f = stack.enter_context(open(ana_file, 'r', encoding='utf8'))
+        pw_f = stack.enter_context(open(pw_file, 'r', encoding='utf8'))
 
         if opc_file:
-            opc_f = stack.enter_context(open(opc_file, 'r'))
+            opc_f = stack.enter_context(open(opc_file, 'r', encoding='utf8'))
         else:
             opc_f = itertools.repeat(None)
 
