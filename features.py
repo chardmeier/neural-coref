@@ -184,6 +184,7 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
             for m in mentions[1:]:
                 offsets.append(len(ftlist))
                 ftlist.extend(int(ft) for ft in m.split(' '))
+            offsets.append(len(ftlist))
             ana_features = torch.IntTensor(ftlist)
             ana_offsets = torch.IntTensor(offsets)
 
@@ -206,6 +207,7 @@ def load_text_data(ana_file, ana_fmap_file, pw_file, pw_fmap_file, opc_file):
                     ant_m = 0
                 else:
                     ant_m += 1
+            offsets.append(len(ftlist))
             pw_features = torch.IntTensor(ftlist)
             pw_offsets = torch.IntTensor(offsets)
 
