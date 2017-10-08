@@ -47,7 +47,7 @@ class EpsilonScoringModel(torch.nn.Module):
             self.factory = util.CPUFactory()
 
     def forward(self, phi_a, phi_a_offsets, batchsize=None):
-        nmentions = phi_a_offsets.size()[0]
+        nmentions = phi_a_offsets.size()[0] - 1
 
         if batchsize is None:
             batchsize = nmentions
@@ -57,11 +57,10 @@ class EpsilonScoringModel(torch.nn.Module):
 
         for batch_start in range(0, nmentions, batchsize):
             this_batchsize = min(batchsize, nmentions - batch_start)
-            start_idx = phi_a_offsets[batch_start]
-            end_idx = phi_a_offsets[batch_start + this_batchsize]
+            start_idx = self.factory.get_single(phi_a_offsets[batch_start])
+            end_idx = self.factory.get_single(phi_a_offsets[batch_start + this_batchsize])
             this_phi_a = phi_a[start_idx:end_idx]
-            this_phi_a_offsets = phi_a_offsets[batch_start:(batch_start + this_batchsize)]
-            this_phi_a_offsets -= this_phi_a_offsets[0]
+            this_phi_a_offsets = phi_a_offsets[batch_start:(batch_start + this_batchsize)] - start_idx
 
             this_h_a = self.ha_model(this_phi_a, this_phi_a_offsets)
             h_a[batch_start:(batch_start + this_batchsize), :] = this_h_a
@@ -101,7 +100,7 @@ class AntecedentScoringModel(torch.nn.Module):
 
     def forward(self, h_a, phi_p, phi_p_offsets, cand_subset=None, batchsize=None):
         nmentions = h_a.size()[0]
-        ncands = phi_p_offsets.size()[0]
+        ncands = phi_p_offsets.size()[0] - 1
 
         if batchsize is None:
             batchsize = ncands
@@ -120,11 +119,10 @@ class AntecedentScoringModel(torch.nn.Module):
 
             h_combined = Variable(self.factory.float_tensor(this_batchsize, self.ha_size + self.hp_size))
 
-            start_idx = phi_p_offsets[batch_start]
-            end_idx = phi_p_offsets[batch_start + this_batchsize]
+            start_idx = self.factory.get_single(phi_p_offsets[batch_start])
+            end_idx = self.factory.get_single(phi_p_offsets[batch_start + this_batchsize])
             this_phi_p = phi_p[start_idx:end_idx]
-            this_phi_p_offsets = phi_p_offsets[batch_start:(batch_start + this_batchsize)]
-            this_phi_p_offsets -= this_phi_p_offsets[0]
+            this_phi_p_offsets = phi_p_offsets[batch_start:(batch_start + this_batchsize)] - start_idx
 
             this_cand_subset = cand_subset[batch_start:(batch_start + this_batchsize)]
 
@@ -208,8 +206,8 @@ class MentionRankingModel(torch.nn.Module):
         phi_p = Variable(t_phi_p, volatile=False, requires_grad=False)
         phi_p_offsets = Variable(t_phi_p_offsets, volatile=False, requires_grad=False)
 
-        sub_phi_a, sub_phi_a_offsets = _select_features(phi_a, phi_a_offsets, loss_contributing_idx)
-        sub_phi_p, sub_phi_p_offsets = _select_features(phi_p, phi_p_offsets, relevant_cands)
+        sub_phi_a, sub_phi_a_offsets = self._select_features(phi_a, phi_a_offsets, loss_contributing_idx)
+        sub_phi_p, sub_phi_p_offsets = self._select_features(phi_p, phi_p_offsets, relevant_cands)
         sub_eps_scores, sub_h_a = self.eps_model(sub_phi_a, sub_phi_a_offsets, batchsize=batchsize)
         sub_ana_scores = self.ana_model(sub_h_a, sub_phi_p, sub_phi_p_offsets,
                                         cand_subset=cand_subset, batchsize=batchsize)
@@ -339,13 +337,14 @@ class MentionRankingModel(torch.nn.Module):
 
         return all_scores
 
-
-def _select_features(values, offsets, indices):
-    start_offsets = torch.index_select(offsets, 0, indices)
-    end_offsets = torch.index_select(offsets, 0, indices + 1)
-    out_values = torch.cat([values[a:b] for a, b in zip(start_offsets, end_offsets)])
-    out_offsets = torch.cat([offsets.new(1).zero_(), torch.cumsum(end_offsets - start_offsets, 0)])
-    return out_values, out_offsets
+    def _select_features(self, values, offsets, indices):
+        start_offsets = torch.index_select(offsets, 0, indices)
+        end_offsets = torch.index_select(offsets, 0, indices + 1)
+        out_values = torch.cat([values[self.factory.get_single(a):self.factory.get_single(b)]
+                                for a, b in zip(start_offsets, end_offsets)])
+        zero = Variable(offsets.data.new(1).zero_(), requires_grad=False)
+        out_offsets = torch.cat([zero, torch.cumsum(end_offsets - start_offsets, 0)])
+        return out_values, out_offsets
 
 
 def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
