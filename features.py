@@ -95,8 +95,8 @@ def _store_features(group, features, mention_offsets):
     n_features = sum(f.shape[0] for f in features)
     n_mention_offsets = sum(f.shape[0] for f in mention_offsets)
     feature_ds = group.create_dataset('features', shape=(n_features,), dtype=numpy.int32)
-    mention_ds = group.create_dataset('mention_offsets', shape=(n_mention_offsets,), dtype=numpy.int32)
-    doc_ds = group.create_dataset('doc_offsets', shape=(len(features) + 1, 2), dtype=numpy.int32)
+    mention_ds = group.create_dataset('mention_offsets', shape=(n_mention_offsets,), dtype=numpy.int64)
+    doc_ds = group.create_dataset('doc_offsets', shape=(len(features) + 1, 2), dtype=numpy.int64)
     fidx = 0
     oidx = 0
     for i, (d, o) in enumerate(zip(features, mention_offsets)):
