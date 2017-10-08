@@ -238,12 +238,16 @@ class MentionRankingModel(torch.nn.Module):
 
     def compute_dev_scores(self, doc, batchsize=None):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
+        t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
         t_phi_p = self.factory.to_device(doc.pairwise_features.long())
+        t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
 
         phi_a = Variable(t_phi_a, volatile=True)
+        phi_a_offsets = Variable(t_phi_a_offsets, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        all_eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
-        all_ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
+        phi_p_offsets = Variable(t_phi_p_offsets, volatile=True)
+        all_eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
+        all_ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
         solution_mask = self.factory.to_device(doc.solution_mask)
         margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
