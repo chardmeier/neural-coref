@@ -5,7 +5,7 @@ out_file = '/wrk/chardmei/mr/mr-torch-vanilla.model'
 with h5py.File(torch_file, 'r') as torch_h5, h5py.File(out_file, 'w') as mr_h5:
     mr = mr_h5.create_group('MentionRankingModel')
     mr.attrs['net-config'] = '{"dropout_h_comb": 0.4, "ha_size": 128, "hp_size": 700, "g2_size": null, ' + \
-                             '"anaphoricity_fsize": 14200, "pairwise_fsize": 28394}'
+                             '"one_based_features": true, "anaphoricity_fsize": 14200, "pairwise_fsize": 28394}'
 
     na = torch_h5['na']
     pw = torch_h5['pw']
