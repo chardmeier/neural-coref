@@ -311,12 +311,17 @@ class MentionRankingModel(torch.nn.Module):
 
     def predict(self, doc, batchsize=None):
         t_phi_a = self.factory.to_device(doc.anaphoricity_features.long())
+        t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
         t_phi_p = self.factory.to_device(doc.pairwise_features.long())
+        t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
 
         phi_a = Variable(t_phi_a, volatile=True)
+        phi_a_offsets = Variable(t_phi_a_offsets, volatile=True)
         phi_p = Variable(t_phi_p, volatile=True)
-        eps_scores, h_a = self.eps_model(phi_a, batchsize=batchsize)
-        ana_scores = self.ana_model(h_a, phi_p, batchsize=batchsize)
+        phi_p_offsets = Variable(t_phi_p_offsets, volatile=True)
+
+        eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
+        ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
 
         scores = self.create_score_matrix(eps_scores.data, ana_scores.data)
 
