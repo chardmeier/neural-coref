@@ -36,6 +36,7 @@ class EpsilonScoringModel(torch.nn.Module):
     def __init__(self, phi_a_size, ha_size, cuda=False):
         super(EpsilonScoringModel, self).__init__()
 
+        self.n_embeddings = phi_a_size
         self.ha_size = ha_size
         self.ha_model = HModel(phi_a_size, ha_size)
 
@@ -74,6 +75,8 @@ class AntecedentScoringModel(torch.nn.Module):
         super(AntecedentScoringModel, self).__init__()
 
         self.with_cuda = cuda
+
+        self.n_embeddings = phi_p_size
 
         self.ha_size = ha_size
         self.hp_size = hp_size
@@ -146,11 +149,14 @@ class MentionRankingModel(torch.nn.Module):
             self.factory = util.CPUFactory()
         self.false_new_cost = None
         self.link_costs = None
-        if one_based_features:
-            # This is just for debugging, to be compatible with Wiseman's Torch code
-            self.feature_offset = 1
+        self.one_based_features = one_based_features
+
+    def _adjust_features(self, values, model):
+        if not self.one_based_features:
+            return values
         else:
-            self.feature_offset = 0
+            # This is just for debugging, to be compatible with Wiseman's Torch code
+            return (values - 1) % model.n_embeddings
 
     def forward(self):
         # call one of the more specific methods instead
@@ -161,9 +167,9 @@ class MentionRankingModel(torch.nn.Module):
         self.link_costs = self.factory.to_device(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
 
     def compute_loss(self, doc, batchsize=None):
-        t_phi_a = self.factory.to_device(doc.anaphoricity_features.long() - self.feature_offset)
+        t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
         t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
-        t_phi_p = self.factory.to_device(doc.pairwise_features.long() - self.feature_offset)
+        t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
         t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
         solution_mask = self.factory.to_device(doc.solution_mask)
 
@@ -242,9 +248,9 @@ class MentionRankingModel(torch.nn.Module):
         return model_loss
 
     def compute_dev_scores(self, doc, batchsize=None):
-        t_phi_a = self.factory.to_device(doc.anaphoricity_features.long() - self.feature_offset)
+        t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
         t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
-        t_phi_p = self.factory.to_device(doc.pairwise_features.long() - self.feature_offset)
+        t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
         t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
 
         phi_a = Variable(t_phi_a, volatile=True)
@@ -315,9 +321,9 @@ class MentionRankingModel(torch.nn.Module):
         }
 
     def predict(self, doc, batchsize=None):
-        t_phi_a = self.factory.to_device(doc.anaphoricity_features.long() - self.feature_offset)
+        t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
         t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
-        t_phi_p = self.factory.to_device(doc.pairwise_features.long() - self.feature_offset)
+        t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
         t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
 
         phi_a = Variable(t_phi_a, volatile=True)
