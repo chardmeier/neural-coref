@@ -22,7 +22,7 @@ class HModel(torch.nn.Module):
     def __init__(self, nfeatures, size_ha):
         super(HModel, self).__init__()
         self.size_ha = size_ha
-        self.embedding = torch.nn.EmbeddingBag(nfeatures, size_ha)
+        self.embedding = torch.nn.EmbeddingBag(nfeatures, size_ha, mode='sum')
         self.bias = torch.nn.Parameter(torch.FloatTensor(size_ha))
 
     def forward(self, values, offsets):
