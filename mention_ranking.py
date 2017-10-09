@@ -126,8 +126,8 @@ class AntecedentScoringModel(torch.nn.Module):
 
             this_cand_subset = cand_subset[batch_start:(batch_start + this_batchsize)]
 
-            h_combined[:, :self.ha_size] = torch.index_select(h_a, 0, this_cand_subset)
-            h_combined[:, self.ha_size:] = self.hp_model(this_phi_p, this_phi_p_offsets)
+            h_combined[:, :self.hp_size] = self.hp_model(this_phi_p, this_phi_p_offsets)
+            h_combined[:, self.hp_size:] = torch.index_select(h_a, 0, this_cand_subset)
 
             ana_scores[batch_start:(batch_start + this_batchsize)] = self.ana_scoring_model(h_combined)
 
