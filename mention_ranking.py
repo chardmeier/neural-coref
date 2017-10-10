@@ -400,22 +400,26 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
     if cuda:
         model = model.cuda()
 
+    embedding_lr, deep_lr = train_config['learning_rate']
     embedding_layers = []
     deep_layers = []
+    logging.info('Learning rates:')
     for name, p in model.named_parameters():
-        if name.startswith('ha_model.') or name.startswith('hp_model.'):
+        if name.startswith('eps_model.ha_model.') or name.startswith('ana_model.hp_model.'):
+            logging.info('%g  %s  (embedding)' % (embedding_lr, name))
             embedding_layers.append(p)
         else:
+            logging.info('%g  %s' % (deep_lr, name))
             deep_layers.append(p)
 
     opt_params = [
         {
             'params': embedding_layers,
-            'lr': train_config['learning_rate'][0]
+            'lr': embedding_lr
         },
         {
             'params': deep_layers,
-            'lr': train_config['learning_rate'][1]
+            'lr': deep_lr
         }
     ]
 
