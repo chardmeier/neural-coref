@@ -13,7 +13,7 @@ Here's how to use it:
 
 2. Convert the txt files into our own HDF5 format (which is not the same as Wiseman's) by running
    `features.py`. Note that the `main` function in `features.py` contains some hardcoded paths that
-   you need to be adapted to your system.
+   you need to adapt to your system.
 
 3. Train the model with
    ```
