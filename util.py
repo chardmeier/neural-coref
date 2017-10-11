@@ -1,5 +1,7 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
+"""This module contains some helper functions that are used by the neural network code."""
+
 import mention_ranking
 
 import collections
@@ -15,7 +17,11 @@ import zipfile
 from torch.autograd import Variable
 
 
+# Factory classes to simplify creating the right objects for CPU and GPU calculations.
+
 class CPUFactory:
+    """Factory class that creates objects on the CPU."""
+
     def __init__(self):
         self.is_cuda = False
 
@@ -68,6 +74,8 @@ class CPUFactory:
 
 
 class CudaFactory:
+    """Factory class that creates objects on the GPU."""
+
     def __init__(self):
         self.is_cuda = True
 
@@ -120,6 +128,11 @@ class CudaFactory:
 
 
 def to_cpu(inp):
+    """Move objects to the CPU if they aren't already there.
+
+    I'm not sure if this is really necessary. If the cpu() method of the CPU tensors was a true no-op,
+    we could use that instead of this helper function. During debugging, I sometimes had the impression
+    that calling cpu() on CPU tensors slowed down things, but I never investigated this in detail."""
     if isinstance(inp, tuple):
         return tuple(to_cpu(tensor) for tensor in inp)
     elif isinstance(inp, list):
@@ -132,6 +145,7 @@ def to_cpu(inp):
 
 
 def save_model(h5, model):
+    """Save model weights and configuration to a HDF5 group."""
     model_type = model.__class__.__name__
     grp = h5.require_group(model_type)
 
@@ -142,6 +156,7 @@ def save_model(h5, model):
 
 
 def load_model(h5, cuda=False):
+    """Load model weights and configuration from a HDF5 group."""
     grp = h5['MentionRankingModel']
 
     net_config = json.loads(grp.attrs['net-config'])
@@ -154,8 +169,10 @@ def load_model(h5, cuda=False):
     return model
 
 
-# from https://stackoverflow.com/a/3233356
 def recursive_dict_update(d, u):
+    """Update a dictionary recursively to allow overwriting default values.
+
+    Borrowed from https://stackoverflow.com/a/3233356"""
     for k, v in u.items():
         if isinstance(v, collections.Mapping):
             r = recursive_dict_update(d.get(k, {}), v)
