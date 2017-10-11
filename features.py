@@ -1,5 +1,7 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
+"""This module manages the representation of the data sets and conversion between text and HDF5 formats."""
+
 import contextlib
 import h5py
 import itertools
