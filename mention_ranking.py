@@ -151,13 +151,6 @@ class MentionRankingModel(torch.nn.Module):
         self.link_costs = None
         self.one_based_features = one_based_features
 
-    def _adjust_features(self, values, model):
-        if not self.one_based_features:
-            return values
-        else:
-            # This is just for debugging, to be compatible with Wiseman's Torch code
-            return (values - 1) % model.n_embeddings
-
     def forward(self):
         # call one of the more specific methods instead
         raise NotImplementedError
@@ -165,6 +158,24 @@ class MentionRankingModel(torch.nn.Module):
     def set_error_costs(self, costs):
         self.false_new_cost = costs['false_new']
         self.link_costs = self.factory.to_device(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
+
+    def predict(self, doc, batchsize=None):
+        t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
+        t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
+        t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
+        t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
+
+        phi_a = Variable(t_phi_a, volatile=True)
+        phi_a_offsets = Variable(t_phi_a_offsets, volatile=True)
+        phi_p = Variable(t_phi_p, volatile=True)
+        phi_p_offsets = Variable(t_phi_p_offsets, volatile=True)
+
+        eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
+        ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
+
+        scores = self._create_score_matrix(eps_scores.data, ana_scores.data)
+
+        return to_cpu(scores)
 
     def compute_loss(self, doc, batchsize=None):
         t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
@@ -180,7 +191,7 @@ class MentionRankingModel(torch.nn.Module):
         phi_p_offsets = Variable(t_phi_p_offsets, volatile=True)
         all_eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
         all_ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
-        margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
+        margin_info = self._find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         best_correct_idx = margin_info['best_correct_idx']
         loss_idx = margin_info['loss_idx']
@@ -260,7 +271,7 @@ class MentionRankingModel(torch.nn.Module):
         all_eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
         all_ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
         solution_mask = self.factory.to_device(doc.solution_mask)
-        margin_info = self.find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
+        margin_info = self._find_margin(all_eps_scores.data, all_ana_scores.data, solution_mask)
 
         scores = margin_info['scores']
         cost_matrix = margin_info['cost_matrix']
@@ -275,10 +286,10 @@ class MentionRankingModel(torch.nn.Module):
 
         return loss, ncorrect
 
-    def find_margin(self, eps_scores, ana_scores, solution_mask):
+    def _find_margin(self, eps_scores, ana_scores, solution_mask):
         # This finds the scores and rescaling weights defining the margin loss for each example.
         # We start by setting up the score matrix.
-        scores = self.create_score_matrix(eps_scores, ana_scores)
+        scores = self._create_score_matrix(eps_scores, ana_scores)
 
         # Now find the highest-scoring element in the correct cluster (best_correct)
         # and the highest-scoring element overall.
@@ -320,25 +331,7 @@ class MentionRankingModel(torch.nn.Module):
             'loss_per_example': loss_per_example
         }
 
-    def predict(self, doc, batchsize=None):
-        t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
-        t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
-        t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
-        t_phi_p_offsets = self.factory.to_device(doc.pairwise_offsets.long())
-
-        phi_a = Variable(t_phi_a, volatile=True)
-        phi_a_offsets = Variable(t_phi_a_offsets, volatile=True)
-        phi_p = Variable(t_phi_p, volatile=True)
-        phi_p_offsets = Variable(t_phi_p_offsets, volatile=True)
-
-        eps_scores, h_a = self.eps_model(phi_a, phi_a_offsets, batchsize=batchsize)
-        ana_scores = self.ana_model(h_a, phi_p, phi_p_offsets, batchsize=batchsize)
-
-        scores = self.create_score_matrix(eps_scores.data, ana_scores.data)
-
-        return to_cpu(scores)
-
-    def create_score_matrix(self, eps_scores, ana_scores):
+    def _create_score_matrix(self, eps_scores, ana_scores):
         # This method takes the complete epsilon and antecedent scores for a document
         # and arranges them in a lower-triangular matrix with one row for each mention,
         # with the score for being non-anaphoric (epsilon) on the main diagonal and
@@ -356,6 +349,13 @@ class MentionRankingModel(torch.nn.Module):
         all_scores[ana_idx] = ana_scores
 
         return all_scores
+
+    def _adjust_features(self, values, model):
+        if not self.one_based_features:
+            return values
+        else:
+            # This is just for debugging, to be compatible with Wiseman's Torch code
+            return (values - 1) % model.n_embeddings
 
     def _select_features(self, values, offsets, indices):
         start_offsets = torch.index_select(offsets, 0, indices)
