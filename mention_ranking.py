@@ -19,6 +19,7 @@ from util import to_cpu
 
 
 class HModel(torch.nn.Module):
+    """A feature embedding followed by summation with bias and a tanh nonlinearity."""
     def __init__(self, nfeatures, size_ha):
         super(HModel, self).__init__()
         self.size_ha = size_ha
@@ -33,6 +34,7 @@ class HModel(torch.nn.Module):
 
 
 class EpsilonScoringModel(torch.nn.Module):
+    """Submodel computing the scores for each mention being non-anaphoric."""
     def __init__(self, phi_a_size, ha_size, cuda=False):
         super(EpsilonScoringModel, self).__init__()
 
@@ -71,6 +73,7 @@ class EpsilonScoringModel(torch.nn.Module):
 
 
 class AntecedentScoringModel(torch.nn.Module):
+    """Submodel computing a score for each antecedent candidate for each mention."""
     def __init__(self, phi_p_size, hp_size, ha_size, hidden_size=None, dropout=None, cuda=False):
         super(AntecedentScoringModel, self).__init__()
 
@@ -138,6 +141,7 @@ class AntecedentScoringModel(torch.nn.Module):
 
 
 class MentionRankingModel(torch.nn.Module):
+    """Main class implementing the mention-ranking model by Wiseman et al. (ACL 2015)."""
     def __init__(self, net_config, eps_model, ana_model, cuda=False, one_based_features=False):
         super(MentionRankingModel, self).__init__()
         self.net_config = net_config
@@ -152,14 +156,17 @@ class MentionRankingModel(torch.nn.Module):
         self.one_based_features = one_based_features
 
     def forward(self):
-        # call one of the more specific methods instead
+        """The forward method is not implemented in this class because the computations at training
+        and test time are rather different. Call predict, compute_loss or compute_dev_scores instead."""
         raise NotImplementedError
 
     def set_error_costs(self, costs):
+        """This sets the error cost for the slack-rescaled loss function. Must be called before training."""
         self.false_new_cost = costs['false_new']
         self.link_costs = self.factory.to_device(torch.FloatTensor([[costs['false_link']], [costs['wrong_link']]]))
 
     def predict(self, doc, batchsize=None):
+        """Prediction method for use at test time. Returns a lower-triangular score matrix."""
         t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
         t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
         t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
@@ -178,6 +185,13 @@ class MentionRankingModel(torch.nn.Module):
         return to_cpu(scores)
 
     def compute_loss(self, doc, batchsize=None):
+        """Compute the training loss.
+
+        The loss is computed in a two-step procedure that exploits the structure of the objective function,
+        whose value only ever depends on two scores per mention (the highest-scoring predicted and the
+        highest-scoring correct). In the first step, we run the whole network without computing gradients
+        to identify the scores contributing to the loss function. In the second step, we recompute the
+        scores for those items only and do backpropagation."""
         t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
         t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
         t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
@@ -259,6 +273,7 @@ class MentionRankingModel(torch.nn.Module):
         return model_loss
 
     def compute_dev_scores(self, doc, batchsize=None):
+        """Compute scores on the validation set."""
         t_phi_a = self.factory.to_device(self._adjust_features(doc.anaphoricity_features.long(), self.eps_model))
         t_phi_a_offsets = self.factory.to_device(doc.anaphoricity_offsets.long())
         t_phi_p = self.factory.to_device(self._adjust_features(doc.pairwise_features.long(), self.ana_model))
@@ -287,7 +302,7 @@ class MentionRankingModel(torch.nn.Module):
         return loss, ncorrect
 
     def _find_margin(self, eps_scores, ana_scores, solution_mask):
-        # This finds the scores and rescaling weights defining the margin loss for each example.
+        """Find the scores and rescaling weights defining the margin loss for each example."""
         # We start by setting up the score matrix.
         scores = self._create_score_matrix(eps_scores, ana_scores)
 
@@ -300,7 +315,8 @@ class MentionRankingModel(torch.nn.Module):
         highest_scoring, highest_scoring_idx = scores.max(dim=1)
 
         # The following calculations create a tensor in which each component contains the right loss penalty:
-        # 0 for correct predictions, cost[0..2] for false link, false new and wrong link, respectively
+        # 0 for correct predictions, self.link_cost[0..1] for false link and wrong link, and
+        # self.false_new_cost for false new, respectively.
         non_anaphoric = torch.diag(solution_mask)
         anaphoricity_selector = torch.stack([non_anaphoric, 1 - non_anaphoric], dim=1).float()
         # tril() suppresses cataphoric and self-references
@@ -332,10 +348,12 @@ class MentionRankingModel(torch.nn.Module):
         }
 
     def _create_score_matrix(self, eps_scores, ana_scores):
-        # This method takes the complete epsilon and antecedent scores for a document
-        # and arranges them in a lower-triangular matrix with one row for each mention,
-        # with the score for being non-anaphoric (epsilon) on the main diagonal and
-        # the scores for each potential antecedent under the diagonal.
+        """Combine the output of the anaphoric and non-anaphoric submodels into a score matrix.
+
+        This method takes the complete epsilon and antecedent scores for a document
+        and arranges them in a lower-triangular matrix with one row for each mention,
+        with the score for being non-anaphoric (epsilon) on the main diagonal and
+        the scores for each potential antecedent under the diagonal."""
         nmentions = eps_scores.size()[0]
 
         all_scores = self.factory.zeros(nmentions, nmentions)
@@ -351,6 +369,10 @@ class MentionRankingModel(torch.nn.Module):
         return all_scores
 
     def _adjust_features(self, values, model):
+        """Adjust the feature values if the weight matrix has been trained with one-based indexing.
+
+        This is for debugging purposes only and allows the model to use weight matrices trained with
+        Sam Wiseman's original Torch implementation."""
         if not self.one_based_features:
             return values
         else:
@@ -358,6 +380,7 @@ class MentionRankingModel(torch.nn.Module):
             return (values - 1) % model.n_embeddings
 
     def _select_features(self, values, offsets, indices):
+        """This is like torch.index_select, but works on a value/offset tensor pair with variable-length items."""
         start_offsets = torch.index_select(offsets, 0, indices)
         end_offsets = torch.index_select(offsets, 0, indices + 1)
         out_values = torch.cat([values[self.factory.get_single(a):self.factory.get_single(b)]
@@ -368,6 +391,9 @@ class MentionRankingModel(torch.nn.Module):
 
 
 def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
+    """Initialise mention-ranking model parameters, randomly or with pretrained weights."""
+    # TODO: I think this doesn't work at the moment because the layer name in the main MentionRankingModel
+    # TODO: has a prefix that may be missing in the pretrained data structure.
     pretrained_params = {}
 
     if ha_pretrain:
@@ -393,6 +419,7 @@ def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
 
 
 def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=False):
+    """Main training loop."""
     epoch_size = len(training_set)
     dot_interval = max(epoch_size // 80, 1)
     logging.info('%d documents per epoch' % epoch_size)
@@ -485,6 +512,7 @@ def train(model, train_config, training_set, dev_set, checkpoint=None, cuda=Fals
 
 
 def predict(model, test_set, batchsize=None):
+    """Output predictions for a test set."""
     model.eval()
     predictions = []
     for doc in test_set:
@@ -498,6 +526,7 @@ def predict(model, test_set, batchsize=None):
 
 
 def load_net_config(file):
+    """Load network configuration from a file. Set default values here."""
     net_config = {
         'dropout_h_comb': None,
         'ha_size': 128,
@@ -514,6 +543,7 @@ def load_net_config(file):
 
 
 def load_train_config(file):
+    """Load training configuration from a file. Set default values here."""
     train_config = {
         'nepochs': 100,
         'l1reg': 0.001,
@@ -536,6 +566,7 @@ def load_train_config(file):
 
 
 def setup_model(net_config, cuda):
+    """Create a MentionRankingModel object for a given network configuration."""
     eps_model = EpsilonScoringModel(net_config['anaphoricity_fsize'], net_config['ha_size'], cuda=cuda)
     ana_model = AntecedentScoringModel(net_config['pairwise_fsize'],
                                        net_config['hp_size'], net_config['ha_size'],
@@ -550,6 +581,7 @@ def setup_model(net_config, cuda):
 
 
 def create_model(args, cuda):
+    """Create a MentionRankingModel object from command-line arguments."""
     net_config = load_net_config(args.net_config)
     print('net_config ' + json.dumps(net_config), file=sys.stderr)
 
@@ -575,6 +607,7 @@ def create_model(args, cuda):
 
 
 def training_mode(args, model, cuda):
+    """Do all that needs to be done for training the model."""
     train_config = load_train_config(args.train_config)
     print('train_config ' + json.dumps(train_config), file=sys.stderr)
 
@@ -615,6 +648,7 @@ def training_mode(args, model, cuda):
 
 
 def test_mode(args, model, cuda):
+    """Do all that needs to be done for prediction."""
     if args.model_file:
         logging.info('Loading model...')
         with h5py.File(args.model_file, 'r') as h5:
