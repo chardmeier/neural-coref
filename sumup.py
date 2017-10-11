@@ -1,5 +1,8 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
+# This script displays the output of the CoNLL scorer in a nice table format.
+# Contains hardcoded paths specific to my setup.
+
 import os
 import sys
 
