@@ -1,3 +1,4 @@
+# TODO: The pretraining code is currently untested and outdated and unlikely to work.
 import features
 
 import copy
