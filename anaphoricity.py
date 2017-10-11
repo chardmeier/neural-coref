@@ -1,5 +1,9 @@
 # vim: tabstop=8 expandtab shiftwidth=4 softtabstop=4
 
+# This is the code for pretraining the anaphoricity detection model used in one of the pretraining steps.
+# It used to work, but the MentionRankingModel has seen significant updates since then, so this should
+# be updated as well.
+
 import features
 import util
 
