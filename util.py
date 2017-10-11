@@ -6,13 +6,11 @@ import mention_ranking
 
 import collections
 import copy
-import io
 import json
 import math
 import numbers
 import numpy
 import torch
-import zipfile
 
 from torch.autograd import Variable
 
