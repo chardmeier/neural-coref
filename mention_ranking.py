@@ -390,23 +390,15 @@ class MentionRankingModel(torch.nn.Module):
         return out_values, out_offsets
 
 
-def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
+def init_parameters(model, pretrained=None):
     """Initialise mention-ranking model parameters, randomly or with pretrained weights."""
-    pretrained_params = {}
 
-    if ha_pretrain:
-        for name, p in ha_pretrain.items():
-            if name.startswith('eps_model.ha_model.'):
-                pretrained_params[name] = p
-
-    if hp_pretrain:
-        for name, p in hp_pretrain.items():
-            if name.startswith('ana_model.hp_model.'):
-                pretrained_params[name] = p
+    if not pretrained:
+        pretrained = {}
 
     for name, p in model.named_parameters():
-        if name in pretrained_params:
-            p.data = pretrained_params[name]
+        if name in pretrained:
+            p.data = pretrained[name]
         else:
             # Sparse initialisation similar to Sutskever et al. (ICML 2013)
             # For tanh units, use std 0.25 and set biases to 0.5
@@ -617,22 +609,16 @@ def training_mode(args, model, cuda):
     with h5py.File(args.dev_file, 'r') as h5:
         dev_set = features.load_from_hdf5(h5)
 
-    if train_config['ha_pretrain']:
-        logging.info('Loading pretrained weights for h_a layer...')
-        with open(train_config['ha_pretrain'], 'rb') as f:
-            ha_pretrain = torch.load(f)
+    if train_config['pretrain']:
+        logging.info('Loading pretrained weights...')
+        with h5py.File(train_config['pretrain'], 'r') as h5:
+            pretrained_params = {name: torch.from_numpy(numpy.array(p)) for name, p in h5.items()
+                                 if name.startswith('eps_model.ha_model.') or name.startswith('ana_model.hp_model.')}
     else:
-        ha_pretrain = None
-
-    if train_config['hp_pretrain']:
-        logging.info('Loading pretrained weights for h_p layer...')
-        with open(train_config['hp_pretrain'], 'rb') as f:
-            hp_pretrain = torch.load(f)
-    else:
-        hp_pretrain = None
+        pretrained_params = None
 
     logging.info('Initialising parameters...')
-    init_parameters(model, ha_pretrain=ha_pretrain, hp_pretrain=hp_pretrain)
+    init_parameters(model, pretrained=pretrained_params)
 
     logging.info('Training model...')
     train(model, train_config, training_set, dev_set, checkpoint=args.checkpoint, cuda=cuda)
