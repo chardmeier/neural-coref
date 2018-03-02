@@ -392,18 +392,16 @@ class MentionRankingModel(torch.nn.Module):
 
 def init_parameters(model, ha_pretrain=None, hp_pretrain=None):
     """Initialise mention-ranking model parameters, randomly or with pretrained weights."""
-    # TODO: I think this doesn't work at the moment because the layer name in the main MentionRankingModel
-    # TODO: has a prefix that may be missing in the pretrained data structure.
     pretrained_params = {}
 
     if ha_pretrain:
         for name, p in ha_pretrain.items():
-            if name.startswith('ha_model.'):
+            if name.startswith('eps_model.ha_model.'):
                 pretrained_params[name] = p
 
     if hp_pretrain:
         for name, p in hp_pretrain.items():
-            if name.startswith('hp_model.'):
+            if name.startswith('ana_model.hp_model.'):
                 pretrained_params[name] = p
 
     for name, p in model.named_parameters():
